@@ -23,9 +23,7 @@ namespace Assets.ClearWater.Scripts
         [Range(0, 1)]
         public float angularDrag = 0.2f;
 
-        public TextMeshProUGUI completionLabel;
-        public TextMeshProUGUI purityLabel;
-        public TextMeshProUGUI finishLabel;
+        public LevelController levelController;
 
         HashSet<int> finishedParticles = new HashSet<int>();
         HashSet<int> coloredParticles = new HashSet<int>();
@@ -68,14 +66,18 @@ namespace Assets.ClearWater.Scripts
 
             if (keyboard.rKey.isPressed)
             {
-                transform.rotation = Quaternion.identity;
-                angularSpeed = angle = 0;
-                finishedParticles.Clear();
-                coloredParticles.Clear();
-                finishLabel.gameObject.SetActive(false);
-                UpdateScore(finishedParticles.Count, coloredParticles.Count);
-                emitter.KillAll();
+                Restart();
             }
+        }
+
+        public void Restart()
+        {
+            transform.rotation = Quaternion.identity;
+            angularSpeed = angle = 0;
+            finishedParticles.Clear();
+            coloredParticles.Clear();
+            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
+            emitter.KillAll();
         }
 
         void Emitter_OnEmitParticle(ObiEmitter em, int particleIndex)
@@ -97,20 +99,19 @@ namespace Assets.ClearWater.Scripts
                     {
                         solver.userData[contact.bodyA] = colorizers[0].color;
                         if (coloredParticles.Add(contact.bodyA))
-                            UpdateScore(finishedParticles.Count, coloredParticles.Count);
+                            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
                     }
                     else if (colorizers[1].collider == col)
                     {
                         solver.userData[contact.bodyA] = colorizers[1].color;
                         if (coloredParticles.Add(contact.bodyA))
-                            UpdateScore(finishedParticles.Count, coloredParticles.Count);
+                            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
                     }
                     else if (finishLine == col)
                     {
                         if (finishedParticles.Add(contact.bodyA))
-                            UpdateScore(finishedParticles.Count, coloredParticles.Count);
+                            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
                     }
-
                 }
             }
         }
@@ -121,45 +122,6 @@ namespace Assets.ClearWater.Scripts
             {
                 int k = emitter.solverIndices[i];
                 emitter.solver.colors[k] = emitter.solver.userData[k];
-            }
-        }
-
-        public void UpdateScore(int finishedParticles, int coloredParticles)
-        {
-            int completion = Mathf.CeilToInt(finishedParticles / 600.0f * 100);
-            int purity = Mathf.CeilToInt((1 - coloredParticles / 600.0f) * 100);
-
-            completionLabel.text = completion + "% Completed";
-            purityLabel.text = purity + "% Pure";
-
-            if (completion > 90)
-            {
-                if (purity > 95)
-                {
-                    finishLabel.text = "You've done it! Awesome!";
-                    finishLabel.color = new Color(0.2f, 0.8f, 0.2f);
-                }
-                else if (purity > 75)
-                {
-                    finishLabel.text = "You've done it! Quite good.";
-                    finishLabel.color = new Color(0.5f, 0.8f, 0.2f);
-                }
-                else if (purity > 50)
-                {
-                    finishLabel.text = "You've done it! But could be better.";
-                    finishLabel.color = new Color(0.8f, 0.5f, 0.2f);
-                }
-                else if (purity > 25)
-                {
-                    finishLabel.text = "Done...but not that good.";
-                    finishLabel.color = new Color(0.8f, 0.2f, 0.2f);
-                }
-                else
-                {
-                    finishLabel.text = "Try again, very low purity.";
-                    finishLabel.color = new Color(0.2f, 0.2f, 0.2f);
-                }
-                finishLabel.gameObject.SetActive(true);
             }
         }
     }

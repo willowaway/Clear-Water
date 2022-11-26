@@ -6,9 +6,6 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/ClearWater/Scenes/HomeScene.unity
-    guid: 1701c180baf0be94080b499dda8c443a
-  - enabled: 1
     path: Assets/ClearWater/Scenes/Level_001.unity
     guid: 16dc5b1548e55ca4b894db91c789167e
   m_configObjects:
