@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 727782449407591130}
   - component: {fileID: 727782449407591131}
   m_Layer: 0
-  m_Name: On-Screen Controls
+  m_Name: OnScreenControls
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
