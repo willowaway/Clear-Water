@@ -18,6 +18,10 @@ namespace Assets.ClearWater.Scripts
         public FluidColorizer[] colorizers;
         public ObiCollider finishLine;
 
+        public ObiRope rope = null;
+        public ObiRopeCursor ropeCursor = null;
+        public int ropeLength = 3;
+
         public float angularAcceleration = 5;
 
         [Range(0, 1)]
@@ -34,6 +38,11 @@ namespace Assets.ClearWater.Scripts
         // Start is called before the first frame update
         void Start()
         {
+            if (rope != null && ropeCursor != null)
+            {
+                var currentRopeLength = rope.CalculateLength();
+                ropeCursor.ChangeLength(currentRopeLength - ropeLength);
+            }
             solver.OnCollision += Solver_OnCollision;
             emitter.OnEmitParticle += Emitter_OnEmitParticle;
         }
