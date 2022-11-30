@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 4002232021125215223}
   - component: {fileID: 4002232021125214984}
   m_Layer: 0
-  m_Name: LevelController
+  m_Name: GameController
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

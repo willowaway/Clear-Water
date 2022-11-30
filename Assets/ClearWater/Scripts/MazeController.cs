@@ -27,7 +27,7 @@ namespace Assets.ClearWater.Scripts
         [Range(0, 1)]
         public float angularDrag = 0.2f;
 
-        public LevelController levelController;
+        public GameController gameController;
 
         HashSet<int> finishedParticles = new HashSet<int>();
         HashSet<int> coloredParticles = new HashSet<int>();
@@ -85,7 +85,7 @@ namespace Assets.ClearWater.Scripts
             angularSpeed = angle = 0;
             finishedParticles.Clear();
             coloredParticles.Clear();
-            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
+            gameController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
             emitter.KillAll();
         }
 
@@ -108,18 +108,18 @@ namespace Assets.ClearWater.Scripts
                     {
                         solver.userData[contact.bodyA] = colorizers[0].color;
                         if (coloredParticles.Add(contact.bodyA))
-                            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
+                            gameController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
                     }
                     else if (colorizers[1].collider == col)
                     {
                         solver.userData[contact.bodyA] = colorizers[1].color;
                         if (coloredParticles.Add(contact.bodyA))
-                            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
+                            gameController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
                     }
                     else if (finishLine == col)
                     {
                         if (finishedParticles.Add(contact.bodyA))
-                            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
+                            gameController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
                     }
                 }
             }
