@@ -9,8 +9,10 @@ public class LevelController : MonoBehaviour
     public TextMeshProUGUI completionLabel;
     public TextMeshProUGUI purityLabel;
 
+    [Header("Popups")]
     public GameObject popupComplete;
     public GameObject popupFailed;
+    public GameObject popupSettings;
 
     [Space(10)]
     [Header("Popup Complete")]

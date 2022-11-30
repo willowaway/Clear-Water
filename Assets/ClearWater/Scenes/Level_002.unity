@@ -1337,6 +1337,9 @@ MonoBehaviour:
   - {fileID: 3560608691403608644}
   - {fileID: 7669413515072452186}
   finishLine: {fileID: 5269086015071836442}
+  rope: {fileID: 0}
+  ropeCursor: {fileID: 0}
+  ropeLength: 3
   angularAcceleration: 3
   angularDrag: 0.98
   levelController: {fileID: 1401237887}
@@ -1592,7 +1595,7 @@ PrefabInstance:
     - target: {fileID: 310972098401956122, guid: 6b00c5a953349a14692514cb83c63bd9,
         type: 3}
       propertyPath: m_LocalPosition.z
-      value: -10
+      value: -11
       objectReference: {fileID: 0}
     - target: {fileID: 310972098401956122, guid: 6b00c5a953349a14692514cb83c63bd9,
         type: 3}
@@ -2082,7 +2085,7 @@ PrefabInstance:
     - target: {fileID: 4692024245911946064, guid: cbd22c402efa8b04493a47a9779ea27a,
         type: 3}
       propertyPath: m_LocalPosition.y
-      value: -3.250013
+      value: -2.7500112
       objectReference: {fileID: 0}
     - target: {fileID: 4692024245911946064, guid: cbd22c402efa8b04493a47a9779ea27a,
         type: 3}
@@ -2415,7 +2418,7 @@ PrefabInstance:
     - target: {fileID: 8004649092025577141, guid: a38269f67fa96bb439d9cb3fdfa403a2,
         type: 3}
       propertyPath: m_LocalPosition.y
-      value: 1.5000061
+      value: 2.000008
       objectReference: {fileID: 0}
     - target: {fileID: 8004649092025577141, guid: a38269f67fa96bb439d9cb3fdfa403a2,
         type: 3}
