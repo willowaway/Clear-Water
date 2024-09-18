@@ -55,7 +55,16 @@ namespace Obi
                 }
             }
 
-            EditorGUILayout.PropertyField(targetTransform, new GUIContent("Target"));
+            EditorGUI.BeginChangeCheck();
+            Transform trget = EditorGUILayout.ObjectField("Target", attachment.target, typeof(Transform), true) as Transform;
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(attachment, "Set target");
+                attachment.target = trget;
+                PrefabUtility.RecordPrefabInstancePropertyModifications(attachment);
+            }
+
+
             var blueprint = attachment.actor.sourceBlueprint;
 
             if (blueprint != null)

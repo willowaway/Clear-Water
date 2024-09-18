@@ -76,22 +76,22 @@ public class MazeManager : MonoBehaviour
         solver.userData[k] = solver.colors[k];
     }
 
-    private void Solver_OnCollision(ObiSolver s, ObiSolver.ObiCollisionEventArgs e)
+    private void Solver_OnCollision(ObiSolver s, ObiNativeContactList e)
     {
         var world = ObiColliderWorld.GetInstance();
-        foreach (Oni.Contact contact in e.contacts)
+        foreach (Oni.Contact contact in e)
         {
             // look for actual contacts only:
             if (contact.distance < 0.01f)
             {
                 var col = world.colliderHandles[contact.bodyB].owner;
-                if (colorizers[0].collider == col)
+                if (colorizers[0].obiCollider == col)
                 {
                     solver.userData[contact.bodyA] = colorizers[0].color;
                     if (coloredParticles.Add(contact.bodyA))
                         UpdateScore(finishedParticles.Count, coloredParticles.Count);
                 }
-                else if (colorizers[1].collider == col)
+                else if (colorizers[1].obiCollider == col)
                 {
                     solver.userData[contact.bodyA] = colorizers[1].color;
                     if (coloredParticles.Add(contact.bodyA))
@@ -109,7 +109,7 @@ public class MazeManager : MonoBehaviour
 
     void LateUpdate()
     {
-        for (int i = 0; i < emitter.solverIndices.Length; ++i)
+        for (int i = 0; i < emitter.solverIndices.count; ++i)
         {
             int k = emitter.solverIndices[i];
             emitter.solver.colors[k] = emitter.solver.userData[k];

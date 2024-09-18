@@ -32,7 +32,7 @@ namespace Obi
 			{
 				Vector3 pos = new Vector3(i*separation - lenght*0.5f,0,0);
 				Vector3 vel = Quaternion.AngleAxis(i*radialVelocity,Vector3.right) * Vector3.forward;
-				distribution.Add(new ObiEmitterShape.DistributionPoint(pos,vel));
+				distribution.Add(new EmitPoint(pos,vel));
 			}
 
 		}
@@ -45,8 +45,8 @@ namespace Obi
 
 			Handles.DrawLine(-Vector3.right*lenght*0.5f,Vector3.right*lenght*0.5f);
 
-			foreach (DistributionPoint point in distribution)
-				Handles.ArrowHandleCap(0,point.position,Quaternion.LookRotation(point.velocity),0.05f,EventType.Repaint);
+			foreach (EmitPoint point in distribution)
+				Handles.ArrowHandleCap(0,point.position,Quaternion.LookRotation(point.direction),0.05f,EventType.Repaint);
 		}
 	#endif
 

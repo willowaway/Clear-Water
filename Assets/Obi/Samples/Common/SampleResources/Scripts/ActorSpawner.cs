@@ -7,11 +7,9 @@ public class ActorSpawner : MonoBehaviour {
 
 	public ObiActor template;
 
-	public int basePhase = 2;
 	public int maxInstances = 32;
 	public float spawnDelay = 0.3f;
 
-	private int phase = 0;
 	private int instances = 0;
 	private float timeFromLastSpawn = 0;
 	
@@ -24,10 +22,6 @@ public class ActorSpawner : MonoBehaviour {
 		{
 			GameObject go = Instantiate(template.gameObject,transform.position,Quaternion.identity);
             go.transform.SetParent(transform.parent);
-
-            go.GetComponent<ObiActor>().SetFilterCategory(basePhase + phase);
-
-			phase++;
 			instances++;
 			timeFromLastSpawn = 0;
 		}

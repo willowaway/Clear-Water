@@ -3,8 +3,8 @@ using Obi;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
-using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using UnityEngine.InputSystem;
 
 namespace Assets.ClearWater.Scripts
 {
@@ -23,7 +23,7 @@ namespace Assets.ClearWater.Scripts
         [Range(0, 1)]
         public float angularDrag = 0.2f;
 
-        public LevelController levelController;
+        public GameController gameController;
 
         HashSet<int> finishedParticles = new HashSet<int>();
         HashSet<int> coloredParticles = new HashSet<int>();
@@ -76,7 +76,7 @@ namespace Assets.ClearWater.Scripts
             angularSpeed = angle = 0;
             finishedParticles.Clear();
             coloredParticles.Clear();
-            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
+            gameController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
             emitter.KillAll();
         }
 
@@ -86,31 +86,31 @@ namespace Assets.ClearWater.Scripts
             solver.userData[k] = solver.colors[k];
         }
 
-        private void Solver_OnCollision(ObiSolver s, ObiSolver.ObiCollisionEventArgs e)
+        private void Solver_OnCollision(ObiSolver s, ObiNativeContactList e)
         {
             var world = ObiColliderWorld.GetInstance();
-            foreach (Oni.Contact contact in e.contacts)
+            foreach (Oni.Contact contact in e)
             {
                 // look for actual contacts only:
                 if (contact.distance < 0.01f)
                 {
                     var col = world.colliderHandles[contact.bodyB].owner;
-                    if (colorizers[0].collider == col)
+                    if (colorizers[0].obiCollider == col)
                     {
                         solver.userData[contact.bodyA] = colorizers[0].color;
                         if (coloredParticles.Add(contact.bodyA))
-                            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
+                            gameController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
                     }
-                    else if (colorizers[1].collider == col)
+                    else if (colorizers[1].obiCollider == col)
                     {
                         solver.userData[contact.bodyA] = colorizers[1].color;
                         if (coloredParticles.Add(contact.bodyA))
-                            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
+                            gameController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
                     }
                     else if (finishLine == col)
                     {
                         if (finishedParticles.Add(contact.bodyA))
-                            levelController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
+                            gameController.UpdateScore(finishedParticles.Count, coloredParticles.Count);
                     }
                 }
             }
@@ -118,7 +118,7 @@ namespace Assets.ClearWater.Scripts
 
         void LateUpdate()
         {
-            for (int i = 0; i < emitter.solverIndices.Length; ++i)
+            for (int i = 0; i < emitter.solverIndices.count; ++i)
             {
                 int k = emitter.solverIndices[i];
                 emitter.solver.colors[k] = emitter.solver.userData[k];

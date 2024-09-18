@@ -10,7 +10,7 @@ namespace Obi
     public interface IBurstConstraintsImpl : IConstraints
     {
         JobHandle Initialize(JobHandle inputDeps, float substepTime);
-        JobHandle Project(JobHandle inputDeps, float stepTime, float substepTime, int substeps);
+        JobHandle Project(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft);
         void Dispose();
 
         IConstraintsBatchImpl CreateConstraintsBatch();
@@ -81,7 +81,7 @@ namespace Obi
             return inputDeps;
         }
 
-        public JobHandle Project(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public JobHandle Project(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             UnityEngine.Profiling.Profiler.BeginSample("Project");
 
@@ -90,11 +90,11 @@ namespace Obi
             switch(parameters.evaluationOrder)
             {
                 case Oni.ConstraintParameters.EvaluationOrder.Sequential:
-                    inputDeps = EvaluateSequential(inputDeps, stepTime, substepTime, substeps);
+                    inputDeps = EvaluateSequential(inputDeps, stepTime, substepTime, steps, timeLeft);
                 break;
 
                 case Oni.ConstraintParameters.EvaluationOrder.Parallel:
-                    inputDeps = EvaluateParallel(inputDeps, stepTime, substepTime, substeps);
+                    inputDeps = EvaluateParallel(inputDeps, stepTime, substepTime, steps, timeLeft);
                 break;
             }
 
@@ -103,14 +103,14 @@ namespace Obi
             return inputDeps;
         }
 
-        protected virtual JobHandle EvaluateSequential(JobHandle inputDeps, float stepTime, float substepTime,int substeps)
+        protected virtual JobHandle EvaluateSequential(JobHandle inputDeps, float stepTime, float substepTime,int steps, float timeLeft)
         {
             // evaluate and apply all batches:
             for (int i = 0; i < batches.Count; ++i)
             {
                 if (batches[i].enabled)
                 {
-                    inputDeps = batches[i].Evaluate(inputDeps, stepTime, substepTime, substeps);
+                    inputDeps = batches[i].Evaluate(inputDeps, stepTime, substepTime, steps, timeLeft);
                     inputDeps = batches[i].Apply(inputDeps, substepTime);
                     m_Solver.ScheduleBatchedJobsIfNeeded();
                 }
@@ -119,13 +119,13 @@ namespace Obi
             return inputDeps;
         }
 
-        protected virtual JobHandle EvaluateParallel(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        protected virtual JobHandle EvaluateParallel(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             // evaluate all batches:
             for (int i = 0; i < batches.Count; ++i)
                 if (batches[i].enabled)
                 {
-                    inputDeps = batches[i].Evaluate(inputDeps, stepTime, substepTime, substeps);
+                    inputDeps = batches[i].Evaluate(inputDeps, stepTime, substepTime, steps, timeLeft);
                     m_Solver.ScheduleBatchedJobsIfNeeded();
                 }
 

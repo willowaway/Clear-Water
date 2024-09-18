@@ -26,9 +26,36 @@ namespace Obi
             }
         }
 
-        public delegate void ActorCallback(ObiActor actor);                     
-        public delegate void ActorStepCallback(ObiActor actor,float stepTime);
-        public delegate void ActorBlueprintCallback(ObiActor actor,ObiActorBlueprint blueprint);
+        private struct BufferedForces
+        {
+            public bool dirty;
+
+            public Vector4 force;
+            public Vector4 acceleration;
+            public Vector4 impulse;
+            public Vector4 velChange;
+
+            public Vector4 angularForce;
+            public Vector4 angularAcceleration;
+            public Vector4 angularImpulse;
+            public Vector4 angularVelChange;
+
+            public void Clear()
+            {
+                force = Vector4.zero;
+                acceleration = Vector4.zero;
+                impulse = Vector4.zero;
+                velChange = Vector4.zero;
+                angularForce = Vector4.zero;
+                angularAcceleration = Vector4.zero;
+                angularImpulse = Vector4.zero;
+                angularVelChange = Vector4.zero;
+            }
+        }
+
+        public delegate void ActorCallback(ObiActor actor);
+        public delegate void ActorStepCallback(ObiActor actor, float simulatedTime, float substepTime);
+        public delegate void ActorBlueprintCallback(ObiActor actor, ObiActorBlueprint blueprint);
 
         /// <summary>
         /// Called when the actor blueprint has been loaded into the solver.
@@ -41,41 +68,27 @@ namespace Obi
         public event ActorBlueprintCallback OnBlueprintUnloaded;
 
         /// <summary>
-        /// Called at the start of the solver's FixedUpdate (for Fixed and LateFixed updaters) or the solver's Update (for Late updaters)
+        /// Called when the blueprint currently in use has been re-generated. This will always be preceded by a call to
+        /// OnBlueprintUnloaded and OnBlueprintLoaded.
         /// </summary>
-        public event ActorCallback OnPrepareFrame;
+        public event ActorBlueprintCallback OnBlueprintRegenerated;
 
         /// <summary>
-        /// Called at the beginning of a time step, before dirty constraints and active particles have been updated.
+        /// Called before simulation starts.
         /// </summary>
-        public event ActorStepCallback OnPrepareStep;
+        public event ActorStepCallback OnSimulationStart;
 
         /// <summary>
-        /// Called at the beginning of a time step, after dirty constraints and active particles have been updated.
+        /// Called at the end of each frame, after interpolation but before rendering.
         /// </summary>
-        public event ActorStepCallback OnBeginStep;
-
-        /// <summary>
-        /// Called at the beginning of each substep.
-        /// </summary>
-        public event ActorStepCallback OnSubstep;
-
-        /// <summary>
-        /// Called at the end of a timestep, after external forces have been reset and collision callbacks called.
-        /// </summary>
-        public event ActorStepCallback OnEndStep;
-
-        /// <summary>
-        /// Called at the end of each frame.
-        /// </summary>
-        public event ActorCallback OnInterpolate;                       
+        public event ActorStepCallback OnInterpolate;
 
         [HideInInspector] protected int m_ActiveParticleCount = 0;
 
         /// <summary>
         /// Index of each one of the actor's particles in the solver.
         /// </summary>
-        [HideInInspector] public int[] solverIndices;
+        [HideInInspector] public ObiNativeIntList solverIndices;
 
         /// <summary>
         /// For each of the actor's constraint types, offset of every batch in the solver.
@@ -84,12 +97,14 @@ namespace Obi
 
         protected ObiSolver m_Solver;
         protected bool m_Loaded = false;
+        public int groupID = 0;
 
-        private ObiActorBlueprint state;
+        private ObiActorBlueprint m_State;
         private ObiActorBlueprint m_BlueprintInstance;
         private ObiPinConstraintsData m_PinConstraints;
-        [SerializeField][HideInInspector] protected ObiCollisionMaterial m_CollisionMaterial;
-        [SerializeField][HideInInspector] protected bool m_SurfaceCollisions = false;
+        private BufferedForces bufferedForces = new BufferedForces();
+        [SerializeField] [HideInInspector] protected ObiCollisionMaterial m_CollisionMaterial;
+        [SerializeField] [HideInInspector] protected bool m_SurfaceCollisions = false;
 
         /// <summary>
         /// The solver in charge of simulating this actor.
@@ -143,7 +158,9 @@ namespace Obi
                 {
                     m_SurfaceCollisions = value;
                     if (m_Solver != null)
-                        m_Solver.dirtySimplices = true;
+                    {
+                        m_Solver.dirtySimplices |= simplexTypes;
+                    }
                 }
             }
         }
@@ -167,7 +184,7 @@ namespace Obi
         {
             get
             {
-               return m_ActiveParticleCount;
+                return m_ActiveParticleCount;
             }
         }
 
@@ -196,13 +213,12 @@ namespace Obi
             }
         }
 
-        /// <summary>
-        /// If true, it means external forces aren't applied to the particles directly. 
-        /// </summary>
-        /// For instance, cloth uses aerodynamic constraints to do so, and fluid uses drag.
-        public virtual bool usesCustomExternalForces
+        public Oni.SimplexType simplexTypes
         {
-            get { return false; }
+            get
+            {
+                return (sourceBlueprint != null) ? sourceBlueprint.simplexTypes : Oni.SimplexType.Point;
+            }
         }
 
         /// <summary>
@@ -265,7 +281,7 @@ namespace Obi
         /// This is mostly used when the actor needs to change some blueprint data at runtime,
         /// and you don't want to change the blueprint asset as this would affect all other actors using it. Tearable cloth and ropes
         /// make use of this.
-        public ObiActorBlueprint blueprint 
+        public ObiActorBlueprint blueprint
         {
             get
             {
@@ -293,8 +309,7 @@ namespace Obi
                 if (GetComponentInParent<ObiSolver>() == null)
                 {
                     // Add our own environment root and move it to the PrefabStage scene
-                    var newParent = new GameObject("ObiSolver (Environment)", typeof(ObiSolver), typeof(ObiLateFixedUpdater));
-                    newParent.GetComponent<ObiLateFixedUpdater>().solvers.Add(newParent.GetComponent<ObiSolver>());
+                    var newParent = new GameObject("ObiSolver (Environment)", typeof(ObiSolver));
                     UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(newParent, gameObject.scene);
                     transform.root.parent = newParent.transform;
                 }
@@ -330,6 +345,7 @@ namespace Obi
 
         protected virtual void OnValidate()
         {
+            UpdateCollisionMaterials();
         }
 
         private void OnTransformParentChanged()
@@ -345,10 +361,10 @@ namespace Obi
         {
             if (m_Solver != null)
             {
-                if (!m_Solver.AddActor(this))
-                    m_Solver = null;
-                else if (sourceBlueprint != null)
+                if (sourceBlueprint != null)
                     sourceBlueprint.OnBlueprintGenerate += OnBlueprintRegenerate;
+
+                m_Solver.AddActor(this);
             }
         }
 
@@ -359,14 +375,15 @@ namespace Obi
         {
             if (m_Solver != null)
             {
-                m_Solver.RemoveActor(this);
                 if (sourceBlueprint != null)
                     sourceBlueprint.OnBlueprintGenerate -= OnBlueprintRegenerate;
+
+                m_Solver.RemoveActor(this);
             }
         }
 
         /// <summary>
-        /// Forcibly changed the solver in charge of this actor
+        /// Forcibly changes the solver in charge of this actor
         /// </summary>
         /// <param name="newSolver"> The solver we want to put in charge of this actor.</param>  
         /// First it removes the actor from its current solver, then changes the actor's current solver and then readds it to this new solver.
@@ -385,19 +402,41 @@ namespace Obi
 
         protected virtual void OnBlueprintRegenerate(ObiActorBlueprint blueprint)
         {
-            // Reload:
+            // Reload by removing the current blueprint from the solver,
+            // destroying the current blueprint instance if any,
+            // then adding the shared blueprint again.
+
             RemoveFromSolver();
+
+            if (m_BlueprintInstance != null)
+               DestroyImmediate(m_BlueprintInstance);
+
             AddToSolver();
+            
+            OnBlueprintRegenerated?.Invoke(this, blueprint);
         }
 
         protected void UpdateCollisionMaterials()
         {
-            if (m_Solver != null && solverIndices != null)
+            if (isLoaded)
             {
                 int index = m_CollisionMaterial != null ? m_CollisionMaterial.handle.index : -1;
-                for (int i = 0; i < solverIndices.Length; i++)
-                    solver.collisionMaterials[solverIndices[i]] = index;
+                for (int i = 0; i < solverIndices.count; i++)
+                {
+                    if (solverIndices[i] < solver.collisionMaterials.count)
+                        solver.collisionMaterials[solverIndices[i]] = index;
+                }
             }
+        }
+
+        public virtual void ProvideDeformableTriangles(ObiNativeIntList deformableTriangles, ObiNativeVector2List deformableUVs)
+        {
+
+        }
+
+        public virtual void ProvideDeformableEdges(ObiNativeIntList deformableEdges)
+        {
+
         }
 
         /// <summary>
@@ -412,8 +451,8 @@ namespace Obi
         public virtual bool CopyParticle(int actorSourceIndex, int actorDestIndex)
         {
             if (!isLoaded ||
-                actorSourceIndex < 0 || actorSourceIndex >= solverIndices.Length ||
-                actorDestIndex < 0 || actorDestIndex >= solverIndices.Length)
+                actorSourceIndex < 0 || actorSourceIndex >= solverIndices.count ||
+                actorDestIndex < 0 || actorDestIndex >= solverIndices.count)
                 return false;
 
             int sourceIndex = solverIndices[actorSourceIndex];
@@ -421,13 +460,15 @@ namespace Obi
 
             // Copy solver data:
             m_Solver.prevPositions[destIndex] = m_Solver.prevPositions[sourceIndex];
-            m_Solver.renderablePositions[destIndex] = m_Solver.renderablePositions[sourceIndex];
-            m_Solver.startPositions[destIndex] = m_Solver.positions[destIndex] = m_Solver.positions[sourceIndex];
-            m_Solver.startOrientations[destIndex] = m_Solver.orientations[destIndex] = m_Solver.orientations[sourceIndex];
             m_Solver.restPositions[destIndex] = m_Solver.restPositions[sourceIndex];
+            m_Solver.endPositions[destIndex] = m_Solver.startPositions[destIndex] = m_Solver.positions[destIndex] = m_Solver.positions[sourceIndex];
+
+            m_Solver.prevOrientations[destIndex] = m_Solver.prevOrientations[sourceIndex];
             m_Solver.restOrientations[destIndex] = m_Solver.restOrientations[sourceIndex];
+            m_Solver.endOrientations[destIndex] = m_Solver.startOrientations[destIndex] = m_Solver.orientations[destIndex] = m_Solver.orientations[sourceIndex];
+
             m_Solver.velocities[destIndex] = m_Solver.velocities[sourceIndex];
-            m_Solver.angularVelocities[destIndex] = m_Solver.velocities[sourceIndex];
+            m_Solver.angularVelocities[destIndex] = m_Solver.angularVelocities[sourceIndex];
             m_Solver.invMasses[destIndex] = m_Solver.invMasses[sourceIndex];
             m_Solver.invRotationalMasses[destIndex] = m_Solver.invRotationalMasses[sourceIndex];
             m_Solver.principalRadii[destIndex] = m_Solver.principalRadii[sourceIndex];
@@ -445,7 +486,7 @@ namespace Obi
         /// <param name="position"> Position to teleport the particle to, expressed in solver space.</param>
         public void TeleportParticle(int actorIndex, Vector3 position)
         {
-            if (!isLoaded || actorIndex < 0 || actorIndex >= solverIndices.Length)
+            if (!isLoaded || actorIndex < 0 || actorIndex >= solverIndices.count)
                 return;
 
             int solverIndex = solverIndices[actorIndex];
@@ -453,9 +494,8 @@ namespace Obi
             Vector4 delta = (Vector4)position - m_Solver.positions[solverIndex];
             m_Solver.positions[solverIndex] += delta;
             m_Solver.prevPositions[solverIndex] += delta;
-            m_Solver.renderablePositions[solverIndex] += delta;
+            m_Solver.endPositions[solverIndex] += delta;
             m_Solver.startPositions[solverIndex] += delta;
-
         }
 
         /// <summary>
@@ -463,10 +503,10 @@ namespace Obi
         /// </summary>
         /// <param name="position"> World space position to teleport the actor to.</param>
         /// <param name="rotation"> World space rotation to teleport the actor to.</param>
-        public virtual void Teleport(Vector3 position, Quaternion rotation)
+        public virtual Matrix4x4 Teleport(Vector3 position, Quaternion rotation)
         {
             if (!isLoaded)
-                return;
+                return Matrix4x4.identity;
 
             // Subtract current transform position/rotation, then add new world space position/rotation.
             // Lastly, set the transform to the new position/rotation.
@@ -479,18 +519,18 @@ namespace Obi
 
             Quaternion rotOffset = offset.rotation;
 
-            for (int i = 0; i < solverIndices.Length; i++)
+            for (int i = 0; i < solverIndices.count; i++)
             {
                 int solverIndex = solverIndices[i];
 
-                m_Solver.positions[solverIndex] = 
-                m_Solver.prevPositions[solverIndex] = 
-                m_Solver.renderablePositions[solverIndex] = 
+                m_Solver.positions[solverIndex] =
+                m_Solver.prevPositions[solverIndex] =
+                m_Solver.endPositions[solverIndex] =
                 m_Solver.startPositions[solverIndex] = offset.MultiplyPoint3x4(m_Solver.positions[solverIndex]);
 
                 m_Solver.orientations[solverIndex] =
                 m_Solver.prevOrientations[solverIndex] =
-                m_Solver.renderableOrientations[solverIndex] =
+                m_Solver.endOrientations[solverIndex] =
                 m_Solver.startOrientations[solverIndex] = rotOffset * m_Solver.orientations[solverIndex];
 
                 m_Solver.velocities[solverIndex] = Vector4.zero;
@@ -500,33 +540,37 @@ namespace Obi
             transform.position = position;
             transform.rotation = rotation;
 
+            return offset;
         }
 
         protected virtual void SwapWithFirstInactiveParticle(int actorIndex)
         {
             // update solver indices:
-            m_Solver.particleToActor[solverIndices[actorIndex]].indexInActor = m_ActiveParticleCount;
-            m_Solver.particleToActor[solverIndices[m_ActiveParticleCount]].indexInActor = actorIndex;
-
-            solverIndices.Swap(actorIndex, m_ActiveParticleCount);
+            m_Solver.particleToActor[solverIndices[actorIndex]].indexInActor = activeParticleCount;
+            m_Solver.particleToActor[solverIndices[activeParticleCount]].indexInActor = actorIndex;
+            solverIndices.Swap(actorIndex, activeParticleCount);
         }
 
         /// <summary>
         /// Activates one particle.
         /// </summary>
-        /// <param name="actorIndex"> Index in the actor arrays of the particle we will activate.</param>
         /// <returns>
-        /// True if the particle was inactive. False if the particle was already active.
+        /// True if a particle could be activated. False if there are no particles to activate.
         /// </returns> 
         /// This operation preserves the relative order of all particles.
-        public bool ActivateParticle(int actorIndex)
+        public virtual bool ActivateParticle()
         {
-            if (IsParticleActive(actorIndex))
+            if (activeParticleCount >= particleCount)
                 return false;
 
-            SwapWithFirstInactiveParticle(actorIndex);
+            // set active particle radius W to 1.
+            var radii = m_Solver.principalRadii[solverIndices[m_ActiveParticleCount]];
+            radii.w = 1;
+            m_Solver.principalRadii[solverIndices[m_ActiveParticleCount]] = radii;
+
             m_ActiveParticleCount++;
             m_Solver.dirtyActiveParticles = true;
+            m_Solver.dirtySimplices |= simplexTypes;
 
             return true;
         }
@@ -540,14 +584,21 @@ namespace Obi
         /// </returns> 
         /// This operation does not preserve the relative order of other particles, because the last active particle will
         /// swap positions with the particle being deactivated.
-        public bool DeactivateParticle(int actorIndex)
+        public virtual bool DeactivateParticle(int actorIndex)
         {
             if (!IsParticleActive(actorIndex))
                 return false;
 
             m_ActiveParticleCount--;
+
+            // set inactive particle W to zero, this allows renderers to ignore it.
+            var radii = m_Solver.principalRadii[solverIndices[actorIndex]];
+            radii.w = 0;
+            m_Solver.principalRadii[solverIndices[actorIndex]] = radii;
+
             SwapWithFirstInactiveParticle(actorIndex);
             m_Solver.dirtyActiveParticles = true;
+            m_Solver.dirtySimplices |= simplexTypes;
 
             return true;
         }
@@ -559,9 +610,9 @@ namespace Obi
         /// <returns>
         /// True if the particle is active. False if the particle is inactive.
         /// </returns> 
-        public bool IsParticleActive(int actorIndex)
+        public virtual bool IsParticleActive(int actorIndex)
         {
-            return actorIndex < m_ActiveParticleCount;
+            return actorIndex < activeParticleCount;
         }
 
         /// <summary>
@@ -604,7 +655,7 @@ namespace Obi
         public void SetSimplicesDirty()
         {
             if (m_Solver != null)
-                m_Solver.dirtySimplices = true;
+                m_Solver.dirtySimplices |= simplexTypes;
         }
 
         /// <summary>
@@ -617,7 +668,16 @@ namespace Obi
         public void SetConstraintsDirty(Oni.ConstraintType constraintType)
         {
             if (m_Solver != null)
-                m_Solver.dirtyConstraints |= (1 << (int)constraintType);
+                m_Solver.dirtyConstraints |= 1 << (int)constraintType;
+        }
+
+        /// <summary>
+        /// Marks rendering dirty.
+        /// </summary>
+        public void SetRenderingDirty(Oni.RenderingSystemType rendererType)
+        {
+            if (m_Solver != null)
+                m_Solver.dirtyRendering |= (int)rendererType;
         }
 
         /// <summary>  
@@ -697,9 +757,34 @@ namespace Obi
             return Quaternion.identity;
         }
 
-        /**
-         *  
-         */
+
+        /// <summary>  
+        /// Given a solver particle index, returns the rest position of that particle.
+        /// </summary>  
+        /// <param name="solverIndex"> Index of the particle in the solver arrays.</param>  
+        /// <returns>
+        /// The position of a given particle in world space.
+        /// </returns>
+        public Vector3 GetParticleRestPosition(int solverIndex)
+        {
+            if (isLoaded)
+                return m_Solver.restPositions[solverIndex];
+            return Vector3.zero;
+        }
+
+        /// <summary>  
+        /// Given a solver particle index, returns the rest orientation of that particle.
+        /// </summary>  
+        /// <param name="solverIndex"> Index of the particle in the solver arrays.</param>  
+        /// <returns>
+        /// The orientation of a given particle in world space.
+        /// </returns>
+        public Quaternion GetParticleRestOrientation(int solverIndex)
+        {
+            if (isLoaded)
+                return m_Solver.restOrientations[solverIndex];
+            return Quaternion.identity;
+        }
 
         /// <summary>  
         /// Given a solver particle index, returns the anisotropic frame of that particle in world space.
@@ -712,19 +797,17 @@ namespace Obi
         {
             if (isLoaded && usesAnisotropicParticles)
             {
-                int baseIndex = solverIndex * 3;
+                b1 = m_Solver.transform.TransformDirection(m_Solver.renderableOrientations[solverIndex] * Vector3.right);
+                b2 = m_Solver.transform.TransformDirection(m_Solver.renderableOrientations[solverIndex] * Vector3.up);
+                b3 = m_Solver.transform.TransformDirection(m_Solver.renderableOrientations[solverIndex] * Vector3.forward);
 
-                b1 = m_Solver.transform.TransformDirection(m_Solver.anisotropies[baseIndex]);
-                b2 = m_Solver.transform.TransformDirection(m_Solver.anisotropies[baseIndex + 1]);
-                b3 = m_Solver.transform.TransformDirection(m_Solver.anisotropies[baseIndex + 2]);
-
-                b1[3] = m_Solver.maxScale * m_Solver.anisotropies[baseIndex][3];
-                b2[3] = m_Solver.maxScale * m_Solver.anisotropies[baseIndex + 1][3];
-                b3[3] = m_Solver.maxScale * m_Solver.anisotropies[baseIndex + 2][3];
+                b1[3] = m_Solver.maxScale * m_Solver.renderableRadii[solverIndex][0];
+                b2[3] = m_Solver.maxScale * m_Solver.renderableRadii[solverIndex][1];
+                b3[3] = m_Solver.maxScale * m_Solver.renderableRadii[solverIndex][2];
             }
             else
             {
-                b1[3] = b2[3] = b3[3] = m_Solver.maxScale * m_Solver.principalRadii[solverIndex][0];
+                b1[3] = b2[3] = b3[3] = m_Solver.maxScale * m_Solver.renderableRadii[solverIndex][0];
             }
         }
 
@@ -848,54 +931,23 @@ namespace Obi
         /// <param name="forceMode"> Type of "force" applied.</param>
         public void AddForce(Vector3 force, ForceMode forceMode)
         {
+            if (force.sqrMagnitude > Mathf.Epsilon)
+                bufferedForces.dirty = true;
 
-            Vector3 com;
-            float mass = GetMass(out com);
-
-            if (!float.IsInfinity(mass))
+            switch (forceMode)
             {
-
-                Vector4 bodyForce = force;
-
-                switch (forceMode)
-                {
-                    case ForceMode.Force:
-                        {
-
-                            bodyForce /= mass;
-
-                            for (int i = 0; i < solverIndices.Length; ++i)
-                                m_Solver.externalForces[solverIndices[i]] += bodyForce / m_Solver.invMasses[solverIndices[i]];
-
-                        }
-                        break;
-                    case ForceMode.Acceleration:
-                        {
-
-                            for (int i = 0; i < solverIndices.Length; ++i)
-                                m_Solver.externalForces[solverIndices[i]] += bodyForce / m_Solver.invMasses[solverIndices[i]];
-
-                        }
-                        break;
-                    case ForceMode.Impulse:
-                        {
-
-                            bodyForce /= mass;
-
-                            for (int i = 0; i < solverIndices.Length; ++i)
-                                m_Solver.externalForces[solverIndices[i]] += bodyForce / m_Solver.invMasses[solverIndices[i]] / Time.fixedDeltaTime;
-
-                        }
-                        break;
-                    case ForceMode.VelocityChange:
-                        {
-
-                            for (int i = 0; i < solverIndices.Length; ++i)
-                                m_Solver.externalForces[solverIndices[i]] += bodyForce / m_Solver.invMasses[solverIndices[i]] / Time.fixedDeltaTime;
-
-                        }
-                        break;
-                }
+                case ForceMode.Force:
+                    bufferedForces.force += (Vector4)force;
+                    break;
+                case ForceMode.Acceleration:
+                    bufferedForces.acceleration += (Vector4)force;
+                    break;
+                case ForceMode.Impulse:
+                    bufferedForces.impulse += (Vector4)force;
+                    break;
+                case ForceMode.VelocityChange:
+                    bufferedForces.velChange += (Vector4)force;
+                    break;
             }
         }
 
@@ -906,94 +958,47 @@ namespace Obi
         /// <param name="forceMode"> Type of "torque" applied.</param>
         public void AddTorque(Vector3 force, ForceMode forceMode)
         {
+            if (force.sqrMagnitude > Mathf.Epsilon)
+                bufferedForces.dirty = true;
 
-            Vector3 com;
-            float mass = GetMass(out com);
-
-            if (!float.IsInfinity(mass))
+            switch (forceMode)
             {
-
-                Vector3 bodyForce = force;
-
-                switch (forceMode)
-                {
-                    case ForceMode.Force:
-                        {
-
-                            bodyForce /= mass;
-
-                            for (int i = 0; i < solverIndices.Length; ++i)
-                            {
-
-                                Vector3 v = Vector3.Cross(bodyForce / m_Solver.invMasses[solverIndices[i]], (Vector3)m_Solver.positions[solverIndices[i]] - com);
-                                m_Solver.externalForces[solverIndices[i]] += new Vector4(v.x, v.y, v.z, 0);
-                            }
-
-                        }
-                        break;
-                    case ForceMode.Acceleration:
-                        {
-
-                            for (int i = 0; i < solverIndices.Length; ++i)
-                            {
-
-                                Vector3 v = Vector3.Cross(bodyForce / m_Solver.invMasses[solverIndices[i]], (Vector3)m_Solver.positions[solverIndices[i]] - com);
-                                m_Solver.externalForces[solverIndices[i]] += new Vector4(v.x, v.y, v.z, 0);
-                            }
-
-                        }
-                        break;
-                    case ForceMode.Impulse:
-                        {
-
-                            bodyForce /= mass;
-
-                            for (int i = 0; i < solverIndices.Length; ++i)
-                            {
-
-                                Vector3 v = Vector3.Cross(bodyForce / m_Solver.invMasses[solverIndices[i]] / Time.fixedDeltaTime, (Vector3)m_Solver.positions[solverIndices[i]] - com);
-                                m_Solver.externalForces[solverIndices[i]] += new Vector4(v.x, v.y, v.z, 0);
-                            }
-
-                        }
-                        break;
-                    case ForceMode.VelocityChange:
-                        {
-
-                            for (int i = 0; i < solverIndices.Length; ++i)
-                            {
-
-                                Vector3 v = Vector3.Cross(bodyForce / m_Solver.invMasses[solverIndices[i]] / Time.fixedDeltaTime, (Vector3)m_Solver.positions[solverIndices[i]] - com);
-                                m_Solver.externalForces[solverIndices[i]] += new Vector4(v.x, v.y, v.z, 0);
-                            }
-
-                        }
-                        break;
-                }
+                case ForceMode.Force:
+                        bufferedForces.angularForce += (Vector4)force;
+                    break;
+                case ForceMode.Acceleration:
+                        bufferedForces.angularAcceleration += (Vector4)force;
+                    break;
+                case ForceMode.Impulse:
+                        bufferedForces.angularImpulse += (Vector4)force;
+                    break;
+                case ForceMode.VelocityChange:
+                        bufferedForces.angularVelChange += (Vector4)force;
+                    break;
             }
         }
 
         #region Blueprints
 
-        private void LoadBlueprintParticles(ObiActorBlueprint bp, int groupID)
+        private void LoadBlueprintParticles(ObiActorBlueprint bp)
         {
 
             Matrix4x4 l2sTransform = actorLocalToSolverMatrix;
             Quaternion l2sRotation = l2sTransform.rotation;
 
-            for (int i = 0; i < solverIndices.Length; i++)
+            for (int i = 0; i < solverIndices.count; i++)
             {
                 int k = solverIndices[i];
 
                 if (bp.positions != null && i < bp.positions.Length)
                 {
-                    m_Solver.startPositions[k] = m_Solver.prevPositions[k] = m_Solver.positions[k] = l2sTransform.MultiplyPoint3x4(bp.positions[i]);
+                    m_Solver.endPositions[k] = m_Solver.startPositions[k] = m_Solver.prevPositions[k] = m_Solver.positions[k] = l2sTransform.MultiplyPoint3x4(bp.positions[i]);
                     m_Solver.renderablePositions[k] = l2sTransform.MultiplyPoint3x4(bp.positions[i]);
                 }
 
                 if (bp.orientations != null && i < bp.orientations.Length)
                 {
-                    m_Solver.startOrientations[k] = m_Solver.prevOrientations[k] = m_Solver.orientations[k] = l2sRotation * bp.orientations[i];
+                    m_Solver.endOrientations[k] = m_Solver.startOrientations[k] = m_Solver.prevOrientations[k] = m_Solver.orientations[k] = l2sRotation * bp.orientations[i];
                     m_Solver.renderableOrientations[k] = l2sRotation * bp.orientations[i];
                 }
 
@@ -1016,7 +1021,16 @@ namespace Obi
                     m_Solver.invRotationalMasses[k] = bp.invRotationalMasses[i];
 
                 if (bp.principalRadii != null && i < bp.principalRadii.Length)
-                    m_Solver.principalRadii[k] = bp.principalRadii[i];
+                {
+                    Vector4 radii = bp.principalRadii[i];
+                    radii.w = i < sourceBlueprint.activeParticleCount ? 1 : 0;
+                    m_Solver.principalRadii[k] = radii;
+                }
+                else
+                {
+                    // need inactive emitter particles to zero as their flag.
+                    m_Solver.principalRadii[k] = Vector4.zero; 
+                }
 
                 if (bp.filters != null && i < bp.filters.Length)
                     m_Solver.filters[k] = bp.filters[i];
@@ -1029,7 +1043,10 @@ namespace Obi
 
             m_ActiveParticleCount = sourceBlueprint.activeParticleCount;
             m_Solver.dirtyActiveParticles = true;
-            m_Solver.dirtySimplices = true;
+            m_Solver.dirtyDeformableTriangles = true;
+            m_Solver.dirtyDeformableEdges = true;
+            m_Solver.dirtySimplices |= simplexTypes;
+            m_Solver.dirtyConstraints |= ~0;
 
             // Push collision materials:
             UpdateCollisionMaterials();
@@ -1041,7 +1058,10 @@ namespace Obi
             // Update active particles. 
             m_ActiveParticleCount = 0;
             m_Solver.dirtyActiveParticles = true;
-            m_Solver.dirtySimplices = true;
+            m_Solver.dirtyDeformableTriangles = true;
+            m_Solver.dirtyDeformableEdges = true;
+            m_Solver.dirtySimplices |= simplexTypes;
+            m_Solver.dirtyConstraints |= ~0;
         }
 
         /// <summary>  
@@ -1061,12 +1081,12 @@ namespace Obi
                 {
                     int solverIndex = solverIndices[i];
 
-                    solver.renderablePositions[solverIndex] = solver.positions[solverIndex] = l2sTransform.MultiplyPoint3x4(sourceBlueprint.positions[i]);
+                    solver.startPositions[solverIndex] = solver.endPositions[solverIndex] = solver.positions[solverIndex] = l2sTransform.MultiplyPoint3x4(sourceBlueprint.positions[i]);
                     solver.velocities[solverIndex] = l2sTransform.MultiplyVector(sourceBlueprint.velocities[i]);
 
                     if (usesOrientedParticles)
                     {
-                        solver.renderableOrientations[solverIndex] = solver.orientations[solverIndex] = l2sRotation * sourceBlueprint.orientations[i];
+                        solver.startOrientations[solverIndex] = solver.endOrientations[solverIndex] = solver.orientations[solverIndex] = l2sRotation * sourceBlueprint.orientations[i];
                         solver.angularVelocities[solverIndex] = l2sTransform.MultiplyVector(sourceBlueprint.angularVelocities[i]);
                     }
                 }
@@ -1084,36 +1104,39 @@ namespace Obi
         /// <param name="bp"> The blueprint that we want to fill with current particle data.</param>
         /// Note that this will not resize the blueprint's data arrays, and that it does not perform range checking. For this reason,
         /// you must supply a blueprint large enough to store all particles' data.
-        public void SaveStateToBlueprint(ObiActorBlueprint bp)
+        public bool SaveStateToBlueprint(ObiActorBlueprint bp)
         {
-            if (bp == null)
-                return;
+            if (bp == null || !m_Loaded)
+                return false;
 
             Matrix4x4 l2sTransform = actorLocalToSolverMatrix.inverse;
             Quaternion l2sRotation = l2sTransform.rotation;
 
-            for (int i = 0; i < solverIndices.Length; i++)
+            // blueprint might have been regenerated, and reduced its size:
+            for (int i = 0; i < solverIndices.count; i++)
             {
                 int k = solverIndices[i];
 
-                if (m_Solver.positions != null && k < m_Solver.positions.count)
+                if (bp.positions != null && m_Solver.positions != null && k < m_Solver.positions.count && i < bp.positions.Length)
                     bp.positions[i] = l2sTransform.MultiplyPoint3x4(m_Solver.positions[k]);
 
-                if (m_Solver.velocities != null && k < m_Solver.velocities.count)
+                if (bp.velocities != null && m_Solver.velocities != null && k < m_Solver.velocities.count && i < bp.velocities.Length)
                     bp.velocities[i] = l2sTransform.MultiplyVector(m_Solver.velocities[k]);
             }
+
+            return true;
         }
 
         protected void StoreState()
         {
-            DestroyImmediate(state);
-            state = Instantiate<ObiActorBlueprint>(sourceBlueprint);
-            SaveStateToBlueprint(state);
+            DestroyImmediate(m_State);
+            m_State = Instantiate(sourceBlueprint);
+            SaveStateToBlueprint(m_State);
         }
 
         public void ClearState()
         {
-            DestroyImmediate(state);
+            DestroyImmediate(m_State);
         }
 
         #endregion
@@ -1130,16 +1153,14 @@ namespace Obi
             // in case we have temporary state, load that instead of the original blueprint.
             if (Application.isPlaying)
             {
-                bp = state != null ? state : sourceBlueprint;
+                bp = m_State != null ? m_State : sourceBlueprint;
             }
 
             m_Loaded = true;
 
-            LoadBlueprintParticles(bp, solver.actors.Count);
-            solver.dirtyConstraints |= ~0;
+            LoadBlueprintParticles(bp);
 
-            if (OnBlueprintLoaded != null)
-                OnBlueprintLoaded(this, null);
+            OnBlueprintLoaded?.Invoke(this, bp);
         }
 
         /// <summary>  
@@ -1149,78 +1170,83 @@ namespace Obi
         {
             // instantiate blueprint and store current state in the instance:
             if (Application.isPlaying)
-            {
                 StoreState();
-            }
 
             m_Loaded = false;
 
             // unload the blueprint.
-            solver.dirtyConstraints |= ~0;
             UnloadBlueprintParticles();
 
-            if (OnBlueprintUnloaded != null)
-                OnBlueprintUnloaded(this, null);
+            OnBlueprintUnloaded?.Invoke(this, sharedBlueprint);
         }
 
-        public virtual void PrepareFrame()
+        public virtual void SimulationStart(float timeToSimulate, float substepTime)
         {
-            if (OnPrepareFrame != null)
-                OnPrepareFrame(this);
+            OnSimulationStart?.Invoke(this, timeToSimulate, substepTime);
+
+            // Apply any buffered forces/torques:
+            if (bufferedForces.dirty)
+            {
+                float mass = GetMass(out Vector3 com);
+
+                if (!float.IsInfinity(mass))
+                {
+                    Vector4 accum;
+                    foreach (var p in solverIndices)
+                    {
+                        accum = bufferedForces.force / m_Solver.invMasses[p] / mass;
+                        accum += bufferedForces.acceleration / m_Solver.invMasses[p];
+                        accum += bufferedForces.impulse / m_Solver.invMasses[p] / mass / timeToSimulate;
+                        accum += bufferedForces.velChange / m_Solver.invMasses[p] / timeToSimulate;
+                        m_Solver.externalForces[p] += accum;
+
+                        accum = bufferedForces.angularForce / m_Solver.invMasses[p] / mass;
+                        accum += bufferedForces.angularAcceleration / m_Solver.invMasses[p];
+                        accum += bufferedForces.angularImpulse / m_Solver.invMasses[p] / mass / timeToSimulate;
+                        accum += bufferedForces.angularVelChange / m_Solver.invMasses[p] / timeToSimulate;
+                        m_Solver.externalForces[p] += (Vector4)Vector3.Cross(accum, (Vector3)m_Solver.positions[p] - com);
+                    }
+                }
+
+                bufferedForces.Clear();
+            }
         }
 
-        public virtual void PrepareStep(float stepTime)
+        public virtual void SimulationEnd(float simulatedTime, float substepTime)
         {
-            UpdateCollisionMaterials();
 
-            if (OnPrepareStep != null)
-                OnPrepareStep(this, stepTime);
         }
 
-        public virtual void BeginStep(float stepTime)
+        public virtual void RequestReadback()
         {
-            if (OnBeginStep != null)
-                OnBeginStep(this,stepTime); 
+
         }
 
-        public virtual void Substep(float substepTime)
+        public virtual void Interpolate(float simulatedTime, float substepTime)
         {
-            if (OnSubstep != null)
-                OnSubstep(this,substepTime);
-        }
-
-        public virtual void EndStep(float substepTime)
-        {
-            if (OnEndStep != null)
-                OnEndStep(this,substepTime);
-        }
-
-        public virtual void Interpolate() 
-        {
-            // Update particle renderable positions/orientations in the solver:
+            // Update particle positions/orientations in the solver:
             if (!Application.isPlaying && isLoaded)
             {
                 Matrix4x4 l2sTransform = actorLocalToSolverMatrix;
                 Quaternion l2sRotation = l2sTransform.rotation;
 
-                for (int i = 0; i < solverIndices.Length; i++)
+                for (int i = 0; i < solverIndices.count; i++)
                 {
                     int k = solverIndices[i];
 
-                    if (sourceBlueprint.positions != null && i < sourceBlueprint.positions.Length)
+                    if (sourceBlueprint.positions != null && i < sourceBlueprint.positions.Length) 
                     {
-                        m_Solver.renderablePositions[k] = l2sTransform.MultiplyPoint3x4(sourceBlueprint.positions[i]);
+                        m_Solver.renderablePositions[k] = m_Solver.positions[k] = m_Solver.startPositions[k] = m_Solver.endPositions[k] = l2sTransform.MultiplyPoint3x4(sourceBlueprint.positions[i]);
                     }
 
                     if (sourceBlueprint.orientations != null && i < sourceBlueprint.orientations.Length)
                     {
-                        m_Solver.renderableOrientations[k] = l2sRotation * sourceBlueprint.orientations[i];
+                        m_Solver.renderableOrientations[k] = m_Solver.orientations[k] = m_Solver.startOrientations[k] = m_Solver.endOrientations[k] = l2sRotation * sourceBlueprint.orientations[i];
                     }
                 }
             }
 
-            if (OnInterpolate != null)
-                OnInterpolate(this);
+            OnInterpolate?.Invoke(this, simulatedTime, substepTime);
         }
 
         public virtual void OnSolverVisibilityChanged(bool visible)

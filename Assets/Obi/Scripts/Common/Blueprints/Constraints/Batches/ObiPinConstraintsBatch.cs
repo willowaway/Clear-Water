@@ -8,12 +8,12 @@ namespace Obi
     [Serializable]
     public class ObiPinConstraintsBatch : ObiConstraintsBatch
     {
-        protected IPinConstraintsBatchImpl m_BatchImpl;  
+        protected IPinConstraintsBatchImpl m_BatchImpl;
 
         /// <summary>
         /// for each constraint, handle of the pinned collider.
         /// </summary>
-        [HideInInspector] public List<ObiColliderHandle> pinBodies = new List<ObiColliderHandle>();                        
+        [HideInInspector] public List<ObiColliderHandle> pinBodies = new List<ObiColliderHandle>();
 
         /// <summary>
         /// index of the pinned collider in the collider world.
@@ -23,22 +23,22 @@ namespace Obi
         /// <summary>
         /// Pin position expressed in the attachment's local space.
         /// </summary>
-        [HideInInspector] public ObiNativeVector4List offsets = new ObiNativeVector4List();                        
+        [HideInInspector] public ObiNativeVector4List offsets = new ObiNativeVector4List();
 
         /// <summary>
         /// Rest Darboux vector for each constraint.
         /// </summary>
-        [HideInInspector] public ObiNativeQuaternionList restDarbouxVectors = new ObiNativeQuaternionList();        
+        [HideInInspector] public ObiNativeQuaternionList restDarbouxVectors = new ObiNativeQuaternionList();
 
         /// <summary>
         /// Compliances of pin constraits. 2 float per constraint (positional and rotational compliance).
         /// </summary>
-        [HideInInspector] public ObiNativeFloatList stiffnesses = new ObiNativeFloatList();                        
+        [HideInInspector] public ObiNativeFloatList stiffnesses = new ObiNativeFloatList();
 
         /// <summary>
         /// One float per constraint: break threshold.
         /// </summary>
-        [HideInInspector] public ObiNativeFloatList breakThresholds = new ObiNativeFloatList();                     
+        [HideInInspector] public ObiNativeFloatList breakThresholds = new ObiNativeFloatList();
 
         public override Oni.ConstraintType constraintType
         {
@@ -139,6 +139,14 @@ namespace Obi
 
         public override void RemoveFromSolver(ObiSolver solver)
         {
+            base.RemoveFromSolver(solver);
+
+            restDarbouxVectors.Dispose();
+            colliderIndices.Dispose();
+            offsets.Dispose();
+            stiffnesses.Dispose();
+            breakThresholds.Dispose();
+
             if (solver != null && solver.implementation != null)
                 solver.implementation.DestroyConstraintsBatch(m_BatchImpl as IConstraintsBatchImpl);
         }

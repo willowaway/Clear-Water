@@ -20,23 +20,25 @@ namespace Obi
      *  These characteristics make it extremely flexible, memory efficient, and fast. 
      *  Its implementation is also fairly simple and concise. 
      */
-    public unsafe struct NativeMultilevelGrid<T> : IDisposable where T : struct, IEquatable<T>
+    public unsafe struct NativeMultilevelGrid<T> : IDisposable where T : unmanaged, IEquatable<T>
     {
 
-        public const float minSize = 0.01f; 
+        public const float minSize = 0.01f; // minimum cell size is 1 centimeter, enough for very small particles.
+        public const int minLevel = -6;   // grid level for minSize.
+        public const int maxLevel = 17;
 
         /**
          * A cell in the multilevel grid. Coords are 4-dimensional, the 4th component is the grid level.
          */
-        public struct Cell<K> where K : struct, IEquatable<K>
+        public struct Cell<K> where K : unmanaged, IEquatable<K>
         {
             int4 coords;
-            UnsafeList contents;
+            UnsafeList<K> contents;
 
             public Cell(int4 coords)
             {
                 this.coords = coords;
-                contents = new UnsafeList(Allocator.Persistent);
+                contents = new UnsafeList<K>(4,Allocator.Persistent);
             }
 
             public int4 Coords
@@ -58,7 +60,7 @@ namespace Obi
             {
                 get
                 {
-                    return UnsafeUtility.ReadArrayElement<K>(contents.Ptr, index);
+                    return contents.ElementAt(index);
                 }
             }
 
@@ -69,10 +71,10 @@ namespace Obi
 
             public bool Remove(K entity)
             {
-                int index = contents.IndexOf<K>(entity);
+                int index = contents.IndexOf(entity);
                 if (index >= 0)
                 {
-                    contents.RemoveAtSwapBack<K>(index);
+                    contents.RemoveAtSwapBack(index);
                     return true;
                 }
                 return false;
@@ -84,15 +86,15 @@ namespace Obi
             }
         }
 
-        public NativeHashMap<int4, int> grid;
+        public NativeParallelHashMap<int4, int> grid;
         public NativeList<Cell<T>> usedCells;
-        public NativeHashMap<int, int> populatedLevels;
+        public NativeParallelHashMap<int, int> populatedLevels;
 
         public NativeMultilevelGrid(int capacity, Allocator label)
         {
-            grid = new NativeHashMap<int4, int>(capacity, label);
+            grid = new NativeParallelHashMap<int4, int>(capacity, label);
             usedCells = new NativeList<Cell<T>>(label);
-            populatedLevels = new NativeHashMap<int, int>(10, label);
+            populatedLevels = new NativeParallelHashMap<int, int>(10, label);
         }
 
         public int CellCount
@@ -168,14 +170,16 @@ namespace Obi
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int GridLevelForSize(float size)
         {
-            // the magic number is 1/log(2)
-            return (int)math.ceil(math.log(math.max(size,minSize)) * 1.44269504089f);
+            // the magic number is 1/log(2), used because log_a(x) = log_b(x) / log_b(a)
+            // level is clamped between MIN_LEVEL and MAX_LEVEL, then remapped to (0, MAX_LEVEL - MIN_LEVEL)
+            // this allows us to avoid InterlockedMax issues on GPU, since it doesn't work on negative numbers on some APIs.
+            return math.clamp((int)math.ceil(math.log(size) * 1.44269504089f), minLevel, maxLevel) - minLevel;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float CellSizeOfLevel(int level)
         {
-            return math.exp2(level);
+            return math.exp2(level + minLevel);
         }
 
         /**
@@ -183,7 +187,7 @@ namespace Obi
          */
         public static int4 GetParentCellCoords(int4 cellCoords, int level)
         {
-            float decimation = CellSizeOfLevel(level - cellCoords[3]);
+            float decimation = math.exp2(level - cellCoords[3]);
             int4 cell = (int4)math.floor((float4)cellCoords / decimation);
             cell[3] = level;
             return cell;

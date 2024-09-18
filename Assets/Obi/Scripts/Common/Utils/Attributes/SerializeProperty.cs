@@ -68,18 +68,18 @@ namespace Obi{
 
 		private object GetSource(SerializedProperty property)
         {
-			object target = property.serializedObject.targetObject;
+			object trgt = property.serializedObject.targetObject;
 			string[] data = property.propertyPath.Split('.');
 			
 			if (data.Length == 1) 
-				return target;
+				return trgt;
 			else{
 				for (int i = 0; i < data.Length-1;++i){
-					target = target.GetType().GetField(data[i]).GetValue(target);
+					trgt = trgt.GetType().GetField(data[i]).GetValue(trgt);
 				}
 			}
 			
-			return target;
+			return trgt;
 		} 
  
         private object DrawProperty(Rect position, SerializedPropertyType propertyType, Type type, object value, GUIContent label)

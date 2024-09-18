@@ -1,7 +1,4 @@
 ﻿using UnityEngine;
-using System;
-using System.Collections;
-using System.Collections.Generic;
 
 namespace Obi
 {
@@ -21,8 +18,8 @@ namespace Obi
                 int k = emitter.solverIndices[particleIndex];
 				
 				Vector4 userData = emitter.solver.userData[k];
-				userData[0] = emitter.solver.viscosities[k];
-				userData[1] = emitter.solver.surfaceTension[k];
+				userData[0] = emitter.solver.fluidMaterials[k].z; //viscosity
+				userData[1] = emitter.solver.fluidMaterials[k].y; //surf tension
 				emitter.solver.userData[k] = userData;
 			}		
 		}

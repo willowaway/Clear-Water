@@ -9,7 +9,11 @@ namespace Obi
     {
 
         public uint capacity = 1000;
+
+        [Min(0.001f)]
         public float resolution = 1;
+
+        [Min(0.001f)]
         public float restDensity = 1000;        /**< rest density of the material.*/
 
         /** 
@@ -34,28 +38,6 @@ namespace Obi
             m_ActiveParticleCount = 0;
 
             positions = new Vector3[capacity];
-            orientations = new Quaternion[capacity];
-            restPositions = new Vector4[capacity];
-            restOrientations = new Quaternion[capacity];
-            velocities = new Vector3[capacity];
-            angularVelocities = new Vector3[capacity];
-            invMasses = new float[capacity];
-            invRotationalMasses = new float[capacity];
-            principalRadii = new Vector3[capacity];
-            filters = new int[capacity];
-            colors = new Color[capacity];
-
-            for (int i = 0; i < capacity; i++)
-            {
-                invRotationalMasses[i] = invMasses[i] = 1.0f;
-                positions[i] = Vector3.zero;
-                orientations[i] = restOrientations[i] = Quaternion.identity;
-                principalRadii[i] = Vector3.one;
-
-                colors[i] = Color.white;
-                filters[i] = ObiUtils.MakeFilter(ObiUtils.CollideWithEverything, 1);
-
-            }
 
             yield return new CoroutineJob.ProgressInfo("ObiEmitter: done", 1);
         }

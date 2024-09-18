@@ -13,6 +13,9 @@ namespace Obi
         [SerializeProperty("Thickness")]
         [SerializeField] private float thickness = 0;
 
+        [SerializeProperty("Inverted")]
+        [SerializeField] private bool inverted = false;
+
         [SerializeProperty("CollisionMaterial")]
         [SerializeField] private ObiCollisionMaterial material;
 
@@ -22,7 +25,11 @@ namespace Obi
         {
             set
             {
-                material = value;
+                if (material != value)
+                {
+                    material = value;
+                    needsUpdate = true;
+                }
             }
             get { return material; }
         }
@@ -34,7 +41,7 @@ namespace Obi
                 if (filter != value)
                 {
                     filter = value;
-                    dirty = true;
+                    needsUpdate = true;
                 }
             }
             get { return filter; }
@@ -47,10 +54,23 @@ namespace Obi
                 if (!Mathf.Approximately(thickness, value))
                 {
                     thickness = value;
-                    dirty = true;
+                    needsUpdate = true;
                 }
             }
             get { return thickness; }
+        }
+
+        public bool Inverted
+        {
+            set
+            {
+                if (inverted != value)
+                {
+                    inverted = value;
+                    needsUpdate = true;
+                }
+            }
+            get { return inverted; }
         }
 
         public ObiShapeTracker Tracker
@@ -68,15 +88,9 @@ namespace Obi
             }
         }
 
-        public IntPtr OniCollider
+        public ObiForceZone ForceZone 
         {
-            get
-            {
-                if (oniCollider == IntPtr.Zero)
-                    FindSourceCollider();
-
-                return oniCollider;
-            }
+            get; set;
         }
 
         public ObiRigidbodyBase Rigidbody
@@ -85,11 +99,9 @@ namespace Obi
         }
 
         protected ObiColliderHandle shapeHandle;
-
-        protected IntPtr oniCollider;
         protected ObiRigidbodyBase obiRigidbody;
         protected bool wasUnityColliderEnabled = true;
-        protected bool dirty = false;
+        protected bool needsUpdate = true;
 
         protected ObiShapeTracker tracker;                               /**< tracker object used to determine when to update the collider's shape*/
 
@@ -169,6 +181,11 @@ namespace Obi
             }
         }
 
+        public void ForceUpdate()
+        {
+            needsUpdate = true;
+        }
+
         /** 
 		 * Check if the collider transform or its shape have changed any relevant property, and update their Oni counterparts.
 		 */
@@ -176,14 +193,17 @@ namespace Obi
         {
             bool unityColliderEnabled = false;
             Component unityCollider = GetUnityCollider(ref unityColliderEnabled);
-            var colliderWorld = ObiColliderWorld.GetInstance();
 
             if (unityCollider != null)
             {
-                // no need to test for changes, all we are doing is setting some variables here.
-                if (tracker != null)
+                // Only if this object is not static:
+                if (tracker != null && needsUpdate)
+                {
                     tracker.UpdateIfNeeded();
+                }
 
+                // store isStatic, *after* updating the tracker at least once.
+                needsUpdate = !unityCollider.gameObject.isStatic;
             }
             // If the unity collider is null but its handle is valid, the unity collider has been destroyed.
             else if (shapeHandle != null && shapeHandle.isValid)
@@ -192,6 +212,8 @@ namespace Obi
 
         private void OnEnable()
         {
+            needsUpdate = true;
+
             // Initialize using the source collider specified by the user (or find an appropiate one).
             FindSourceCollider();
         }

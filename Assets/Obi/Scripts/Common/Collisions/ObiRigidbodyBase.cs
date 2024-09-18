@@ -5,23 +5,37 @@ using System.Collections;
 
 namespace Obi{
 
-	/**
+    /**
 	 * Small helper class that lets you specify Obi-only properties for rigidbodies.
 	 */
 
-	[ExecuteInEditMode]
-	public abstract class ObiRigidbodyBase : MonoBehaviour
-	{
+    [ExecuteInEditMode]
+    public abstract class ObiRigidbodyBase : MonoBehaviour
+    {
 
         public bool kinematicForParticles = false;
 
-        public ObiRigidbodyHandle handle;
-
-        public virtual void OnEnable()
+        protected ObiRigidbodyHandle rigidbodyHandle;
+        public ObiRigidbodyHandle handle
         {
-            handle = ObiColliderWorld.GetInstance().CreateRigidbody();
-            handle.owner = this;
-            UpdateIfNeeded(1);
+            get
+            {
+                if (rigidbodyHandle == null || !rigidbodyHandle.isValid)
+                {
+                    var world = ObiColliderWorld.GetInstance();
+
+                    // create the material:
+                    rigidbodyHandle = world.CreateRigidbody();
+                    rigidbodyHandle.owner = this;
+                }
+                return rigidbodyHandle;
+            }
+        }
+
+        protected virtual void OnEnable()
+        {
+            //handle = ObiColliderWorld.GetInstance().CreateRigidbody();
+            //handle.owner = this;
         }
 
 		public void OnDisable()

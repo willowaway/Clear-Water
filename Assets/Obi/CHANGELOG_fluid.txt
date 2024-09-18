@@ -1,6 +1,36 @@
 # Change Log
 All notable changes to “Obi - Advanced fluids for Unity” will be documented in this file.
 
+## [7.0.1]
+
+### Added
+- Render layer mask support to fluid renderers and particle renderers.
+
+### Fixed
+- Having a ObiParticleRenderer with no material applied resulted in a exception in builds due GetInstanceID() returning 0 in editor but raising a nullref exception in the build.
+
+## [7.0]
+
+### Added
+- Compute shader based GPU solver backend.
+- New unified viscosity/vorticity model, allows for larger viscosity values as well ass buckling/coiling effects.
+- New polarity based surface tension model, allows for fluids of different polarities to repel each other.
+- New fluid rendering system based on isosurface meshing.
+- Fluid render passes, that allow to control which emitters get rendered using the same set of fluid render properties.
+- More efficient solver update cycle, that also removes the need to have ObiUpdater components.
+
+### Changed
+- Rendering system is now fully multithreaded, integrated with the solver backend.
+
+### Removed
+- Native library based 'Oni' solver backend.
+- ObiUpdater and all derived classes have been removed.
+
+## [6.5.1]
+
+### Added
+- Support for holes in terrain colliders.
+
 ## [6.5]
 
 ### Fixed

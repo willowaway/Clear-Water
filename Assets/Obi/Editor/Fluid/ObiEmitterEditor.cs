@@ -6,80 +6,100 @@ using System.Collections.Generic;
 
 namespace Obi
 {
-	
-	/**
+
+    /**
 	 * Custom inspector for ObiEmitter components.
-	 * Allows particle emission and constraint edition. 
-	 * 
-	 * Selection:
-	 * 
-	 * - To select a particle, left-click on it. 
-	 * - You can select multiple particles by holding shift while clicking.
-	 * - To deselect all particles, click anywhere on the object except a particle.
-	 * 
-	 * Constraints:
-	 * 
-	 * - To edit particle constraints, select the particles you wish to edit.
-	 * - Constraints affecting any of the selected particles will appear in the inspector.
-	 * - To add a new pin constraint to the selected particle(s), click on "Add Pin Constraint".
-	 * 
-	 */
-	[CustomEditor(typeof(ObiEmitter)), CanEditMultipleObjects] 
-	public class ObiEmitterEditor : Editor
-	{
+     */
+    [CustomEditor(typeof(ObiEmitter)), CanEditMultipleObjects]
+    public class ObiEmitterEditor : Editor
+    {
 
         SerializedProperty emitterBlueprint;
 
         SerializedProperty collisionMaterial;
 
-        SerializedProperty fluidPhase;
         SerializedProperty emissionMethod;
         SerializedProperty minPoolSize;
         SerializedProperty speed;
         SerializedProperty lifespan;
-        SerializedProperty randomVelocity;
+        SerializedProperty randomDirection;
         SerializedProperty useShapeColor;
 
-		[MenuItem("GameObject/3D Object/Obi/Obi Emitter",false,200)]
-        static void CreateObiCloth(MenuCommand menuCommand)
-		{
+        [MenuItem("GameObject/3D Object/Obi/Obi Emitter", false, 200)]
+        static void CreateObiEmitter(MenuCommand menuCommand)
+        {
             GameObject go = new GameObject("Obi Emitter");
             ObiEmitter emitter = go.AddComponent<ObiEmitter>();
             ObiEmitterShapeDisk shape = go.AddComponent<ObiEmitterShapeDisk>();
-            ObiParticleRenderer renderer = go.AddComponent<ObiParticleRenderer>();
+            go.AddComponent<ObiFluidSurfaceMesher>();
             shape.Emitter = emitter;
             ObiEditorUtils.PlaceActorRoot(go, menuCommand);
-		}
-		
-		ObiEmitter emitter;
-		
-		public void OnEnable()
+        }
+
+        ObiEmitter emitter;
+
+        public void OnEnable()
         {
-		
-			emitter = (ObiEmitter)target;
-            emitter.UpdateEmitterDistribution();
+
+            emitter = (ObiEmitter)target;
+            emitter.UpdateEmitter();
 
             emitterBlueprint = serializedObject.FindProperty("emitterBlueprint");
 
             collisionMaterial = serializedObject.FindProperty("m_CollisionMaterial");
 
-            fluidPhase = serializedObject.FindProperty("fluidPhase");
             emissionMethod = serializedObject.FindProperty("emissionMethod");
             minPoolSize = serializedObject.FindProperty("minPoolSize");
             speed = serializedObject.FindProperty("speed");
             lifespan = serializedObject.FindProperty("lifespan");
-            randomVelocity = serializedObject.FindProperty("randomVelocity");
+            randomDirection = serializedObject.FindProperty("randomDirection");
             useShapeColor = serializedObject.FindProperty("useShapeColor");
-		}
+        }
 
-		public override void OnInspectorGUI() 
+        public override void OnInspectorGUI()
         {
-			
-			serializedObject.Update();
 
-            EditorGUILayout.HelpBox((emitter.isEmitting?"Emitting...":"Idle") + "\nActive particles:"+ emitter.activeParticleCount,MessageType.Info);
+            serializedObject.Update();
+
+            EditorGUILayout.HelpBox((emitter.isEmitting ? "Emitting..." : "Idle") + "\nActive particles:" + emitter.activeParticleCount, MessageType.Info);
+
+            GUILayout.BeginHorizontal();
+            EditorGUI.BeginChangeCheck();
 
             EditorGUILayout.PropertyField(emitterBlueprint, new GUIContent("Blueprint"));
+
+            if (emitter.emitterBlueprint == null)
+            {
+                if (GUILayout.Button("Create fluid", EditorStyles.miniButton, GUILayout.MaxWidth(80)))
+                {
+                    string path = EditorUtility.SaveFilePanel("Save blueprint", "Assets/", "FluidBlueprint", "asset");
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        path = FileUtil.GetProjectRelativePath(path);
+                        ObiEmitterBlueprintBase asset = ScriptableObject.CreateInstance<ObiFluidEmitterBlueprint>();
+
+                        AssetDatabase.CreateAsset(asset, path);
+                        AssetDatabase.SaveAssets();
+
+                        emitter.emitterBlueprint = asset;
+                    }
+                }
+            }
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                foreach (var t in targets)
+                {
+                    (t as ObiEmitter).RemoveFromSolver();
+                    (t as ObiEmitter).ClearState();
+                }
+                serializedObject.ApplyModifiedProperties();
+                foreach (var t in targets)
+                    (t as ObiEmitter).AddToSolver();
+            }
+
+            GUILayout.EndHorizontal();
+
             EditorGUILayout.PropertyField(collisionMaterial, new GUIContent("Collision material"));
 
             EditorGUI.BeginChangeCheck();
@@ -110,17 +130,18 @@ namespace Obi
             EditorGUILayout.PropertyField(minPoolSize, new GUIContent("Min pool size"));
             EditorGUILayout.PropertyField(speed, new GUIContent("Speed"));
             EditorGUILayout.PropertyField(lifespan, new GUIContent("Lifespan"));
-            EditorGUILayout.PropertyField(randomVelocity, new GUIContent("Random velocity"));
+            EditorGUILayout.PropertyField(randomDirection, new GUIContent("Random direction"));
             EditorGUILayout.PropertyField(useShapeColor, new GUIContent("Use shape color"));
-			
-			// Apply changes to the serializedProperty
-			if (GUI.changed){
-				serializedObject.ApplyModifiedProperties();
-			}
-			
-		}
-		
-	}
+
+            // Apply changes to the serializedProperty
+            if (GUI.changed)
+            {
+                serializedObject.ApplyModifiedProperties();
+            }
+
+        }
+
+    }
 }
 
 

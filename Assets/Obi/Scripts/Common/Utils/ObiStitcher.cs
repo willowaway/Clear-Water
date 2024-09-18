@@ -227,7 +227,6 @@ namespace Obi
             m_BatchImpl.SetStitchConstraints(particleIndices, stiffnesses, lambdas, stitches.Count);
 
         }
-
     }
 }
 

@@ -9,8 +9,8 @@ public class ObiParticleCounter : MonoBehaviour {
     ObiSolver solver;
     public int counter = 0;
     public Collider2D targetCollider = null;
-    
-    Obi.ObiSolver.ObiCollisionEventArgs frame;
+
+    ObiNativeContactList frame;
     HashSet<int> particles = new HashSet<int>();
 
     void Awake(){
@@ -25,13 +25,13 @@ public class ObiParticleCounter : MonoBehaviour {
         solver.OnCollision -= Solver_OnCollision;
     }
     
-    void Solver_OnCollision (object sender, Obi.ObiSolver.ObiCollisionEventArgs e)
+    void Solver_OnCollision (object sender, ObiNativeContactList e)
     {
         HashSet<int> currentParticles = new HashSet<int>();
         
-        for(int i = 0;  i < e.contacts.Count; ++i)
+        for(int i = 0;  i < e.count; ++i)
         {
-            if (e.contacts.Data[i].distance < 0.001f)
+            if (e[i].distance < 0.001f)
             {
 
                 /*Component collider;

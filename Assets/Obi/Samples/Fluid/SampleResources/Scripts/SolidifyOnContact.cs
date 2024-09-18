@@ -29,44 +29,44 @@ public class SolidifyOnContact : MonoBehaviour
 
     void OnEnable()
 	{
-        solver.OnBeginStep += Solver_OnBeginStep;
+        solver.OnSimulationStart += Solver_OnBeginStep;
         solver.OnCollision += Solver_OnCollision;
         solver.OnParticleCollision += Solver_OnParticleCollision;
     }
 
 	void OnDisable()
 	{
-        solver.OnBeginStep -= Solver_OnBeginStep;
+        solver.OnSimulationStart -= Solver_OnBeginStep;
         solver.OnCollision -= Solver_OnCollision;
         solver.OnParticleCollision -= Solver_OnParticleCollision;
     }
 
-    void Solver_OnCollision(object sender, ObiSolver.ObiCollisionEventArgs e)
+    void Solver_OnCollision(object sender, ObiNativeContactList e)
 	{
         // resize array to store one reference transform per particle:
         Array.Resize(ref solids, solver.allocParticleCount);
 
 		var colliderWorld = ObiColliderWorld.GetInstance();
 
-		for (int i = 0; i < e.contacts.Count; ++i)
+		for (int i = 0; i < e.count; ++i)
 		{
-			if (e.contacts.Data[i].distance < 0.001f)
+			if (e[i].distance < 0.001f)
 			{
-				var col = colliderWorld.colliderHandles[e.contacts.Data[i].bodyB].owner;
-                Solidify(solver.simplices[e.contacts.Data[i].bodyA], new SolidData(col.transform));
+				var col = colliderWorld.colliderHandles[e[i].bodyB].owner;
+                Solidify(solver.simplices[e[i].bodyA], new SolidData(col.transform));
 			}
 		}
 
 	}
 
-    void Solver_OnParticleCollision(object sender, ObiSolver.ObiCollisionEventArgs e)
+    void Solver_OnParticleCollision(object sender, ObiNativeContactList e)
     {
-        for (int i = 0; i < e.contacts.Count; ++i)
+        for (int i = 0; i < e.count; ++i)
         {
-            if (e.contacts.Data[i].distance < 0.001f)
+            if (e[i].distance < 0.001f)
             {
-                int particleIndexA = solver.simplices[e.contacts.Data[i].bodyA];
-                int particleIndexB = solver.simplices[e.contacts.Data[i].bodyB];
+                int particleIndexA = solver.simplices[e[i].bodyA];
+                int particleIndexB = solver.simplices[e[i].bodyB];
 
                 if (solver.invMasses[particleIndexA] < 0.0001f && solver.invMasses[particleIndexB] >= 0.0001f)
                     Solidify(particleIndexB, solids[particleIndexA]);
@@ -77,11 +77,11 @@ public class SolidifyOnContact : MonoBehaviour
 
     }
 
-    void Solver_OnBeginStep(ObiSolver s, float stepTime)
+    void Solver_OnBeginStep(ObiSolver s, float timeToSimulate, float substepTime)
     {
         for (int i = 0; i < solids.Length; ++i)
         {
-            if (solver.invMasses[i] < 0.0001f)
+            if (solver.invMasses[i] < 0.0001f && solids[i].reference != null)
             {
                 solver.positions[i] = solver.transform.InverseTransformPoint(solids[i].reference.TransformPoint(solids[i].localPos));
             }

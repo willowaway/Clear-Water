@@ -23,25 +23,25 @@ public class Melt : MonoBehaviour {
 		solver.OnCollision -= Solver_OnCollision;
 	}
 	
-	void Solver_OnCollision (object sender, ObiSolver.ObiCollisionEventArgs e)
+	void Solver_OnCollision (object sender, ObiNativeContactList e)
 	{
         var colliderWorld = ObiColliderWorld.GetInstance();
 
-        for (int i = 0;  i < e.contacts.Count; ++i)
+        for (int i = 0;  i < e.count; ++i)
 		{
-			if (e.contacts.Data[i].distance < 0.001f)
+			if (e[i].distance < 0.001f)
 			{
-                var col = colliderWorld.colliderHandles[e.contacts.Data[i].bodyB].owner;
+                var col = colliderWorld.colliderHandles[e[i].bodyB].owner;
                 if (col != null)
                 {
-                    int k = e.contacts.Data[i].bodyA;
+                    int k = solver.simplices[e[i].bodyA];
 
 					Vector4 userData = solver.userData[k];
 					if (col == hotCollider){
-						userData[0] = Mathf.Max(0.05f,userData[0] - heat * Time.fixedDeltaTime);
+						userData[0] = Mathf.Max(0.02f,userData[0] - heat * Time.fixedDeltaTime);
 						userData[1] = Mathf.Max(0.5f,userData[1] - heat * Time.fixedDeltaTime);
 					}else if (col == coldCollider){
-						userData[0] = Mathf.Min(10,userData[0] + cooling * Time.fixedDeltaTime);
+						userData[0] = Mathf.Min(1,userData[0] + cooling * Time.fixedDeltaTime);
 						userData[1] = Mathf.Min(2,userData[1] + cooling * Time.fixedDeltaTime);
 					}
 					solver.userData[k] = userData;

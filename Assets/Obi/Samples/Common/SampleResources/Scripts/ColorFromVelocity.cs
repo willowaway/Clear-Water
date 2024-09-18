@@ -25,7 +25,7 @@ namespace Obi
             if (!isActiveAndEnabled || actor.solver == null)
 				return;
 
-            for (int i = 0; i < actor.solverIndices.Length; ++i){
+            for (int i = 0; i < actor.solverIndices.count; ++i){
 
 				int k = actor.solverIndices[i];
 

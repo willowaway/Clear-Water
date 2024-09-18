@@ -1,6 +1,4 @@
 ﻿using UnityEngine;
-using System.Collections;
-using System.Collections.Generic;
 using Obi;
 
 [RequireComponent(typeof(ObiSolver))]
@@ -20,14 +18,13 @@ public class ColliderHighlighter : MonoBehaviour {
 		solver.OnCollision -= Solver_OnCollision;
 	}
 	
-	void Solver_OnCollision (object sender, Obi.ObiSolver.ObiCollisionEventArgs e)
+	void Solver_OnCollision (object sender, ObiNativeContactList e)
 	{
         var colliderWorld = ObiColliderWorld.GetInstance();
 
-        Oni.Contact[] contacts = e.contacts.Data;
-		for(int i = 0; i < e.contacts.Count; ++i)
+		for(int i = 0; i < e.count; ++i)
 		{
-			Oni.Contact c = contacts[i];
+			Oni.Contact c = e[i];
 			// make sure this is an actual contact:
 			if (c.distance < 0.01f)
 			{

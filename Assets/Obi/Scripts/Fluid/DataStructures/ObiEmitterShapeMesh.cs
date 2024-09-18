@@ -34,7 +34,7 @@ namespace Obi
                         if (voxelizer[x, y, z] != MeshVoxelizer.Voxel.Outside)
                         {
                             Vector3 pos = new Vector3(voxelizer.Origin.x + x + 0.5f, voxelizer.Origin.y + y + 0.5f, voxelizer.Origin.z + z + 0.5f) * voxelSize;
-                            distribution.Add(new DistributionPoint(pos, Vector3.forward));
+                            distribution.Add(new EmitPoint(pos, Vector3.forward));
                         }
             
         }
@@ -45,10 +45,10 @@ namespace Obi
 			Handles.matrix = transform.localToWorldMatrix;
 			Handles.color  = Color.cyan;
             Vector3 size = Vector3.one * particleSize;
-			foreach (DistributionPoint point in distribution)
+			foreach (EmitPoint point in distribution)
             {
                 Handles.DrawWireCube(point.position, size);
-                Handles.ArrowHandleCap(0, point.position, Quaternion.LookRotation(point.velocity), 0.05f, EventType.Repaint);
+                Handles.ArrowHandleCap(0, point.position, Quaternion.LookRotation(point.direction), 0.05f, EventType.Repaint);
             }
 				
 

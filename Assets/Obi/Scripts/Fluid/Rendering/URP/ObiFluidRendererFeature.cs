@@ -1,424 +1,36 @@
 ﻿#if UNITY_2019_2_OR_NEWER && SRP_UNIVERSAL
-using System;
-using UnityEngine;
-using UnityEngine.Rendering;
-using UnityEngine.Rendering.Universal;
+using System;using UnityEngine;using UnityEngine.Rendering;using UnityEngine.Rendering.Universal;using UnityEngine.XR;namespace Obi{    public class ObiFluidRendererFeature : ScriptableRendererFeature    {        public ObiFluidRenderingPass[] passes;        [Range(1, 4)]        public int thicknessDownsample = 1;        [Min(0)]        public float foamFadeDepth = 1.0f;        private VolumePass m_VolumePass;        public override void Create()        {            if (passes == null)                return;            m_VolumePass = new VolumePass();            m_VolumePass.renderPassEvent = RenderPassEvent.AfterRenderingOpaques;        }        public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)        {            if (passes == null)                return;            m_VolumePass.Setup(passes, thicknessDownsample, foamFadeDepth);
 
-namespace Obi
-{
-
-    public class ObiFluidRendererFeature : ScriptableRendererFeature
-    {
-
-        public FluidRenderingUtils.FluidRendererSettings settings = new FluidRenderingUtils.FluidRendererSettings();
-        private FluidRenderingUtils.FluidRenderTargets renderTargets;
-
-        private ThicknessBufferPass m_ThicknessPass;
-        private SurfaceReconstruction m_SurfacePass;
-        private FoamPass m_FoamPass;
-        private RenderFluidPass m_RenderFluidPass;
-
-        public override void Create()
-        {
-            renderTargets = new FluidRenderingUtils.FluidRenderTargets();
-            renderTargets.foam = Shader.PropertyToID("_Foam");
-            renderTargets.depth = Shader.PropertyToID("_FluidDepthTexture");
-            renderTargets.thickness1 = Shader.PropertyToID("_FluidThickness1");
-            renderTargets.thickness2 = Shader.PropertyToID("_FluidThickness2");
-            renderTargets.smoothDepth = Shader.PropertyToID("_FluidSurface"); //smoothed depth
-            renderTargets.normals = Shader.PropertyToID("_FluidNormals");
-
-            m_ThicknessPass = new ThicknessBufferPass();
-            m_ThicknessPass.renderPassEvent = RenderPassEvent.BeforeRenderingTransparents +1;
-
-            m_SurfacePass = new SurfaceReconstruction();
-            m_SurfacePass.renderPassEvent = RenderPassEvent.BeforeRenderingTransparents +1;
-
-            m_FoamPass = new FoamPass();
-            m_FoamPass.renderPassEvent = RenderPassEvent.BeforeRenderingTransparents + 1;
-
-            m_RenderFluidPass = new RenderFluidPass(RenderTargetHandle.CameraTarget);
-            m_RenderFluidPass.renderPassEvent = RenderPassEvent.BeforeRenderingTransparents +1;
-
-        }
-
-        public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
-        {
-            ObiParticleRenderer[] particleRenderers = GameObject.FindObjectsOfType<ObiParticleRenderer>();
-
-            m_ThicknessPass.Setup(settings, renderTargets, particleRenderers);
-            renderer.EnqueuePass(m_ThicknessPass);
-
-            if (settings.generateSurface)
-            {
-                m_SurfacePass.Setup(settings, renderTargets, particleRenderers);
-                renderer.EnqueuePass(m_SurfacePass);
-            }
-
-            if (settings.generateFoam)
-            {
-                m_FoamPass.Setup(settings, renderTargets, particleRenderers);
-                renderer.EnqueuePass(m_FoamPass);
-            }
-
-            m_RenderFluidPass.Setup(settings, renderTargets);
-            renderer.EnqueuePass(m_RenderFluidPass);
-        }
-
-    }
-
-    public class ThicknessBufferPass : ScriptableRenderPass
-    {
-        const string k_RenderGrabPassTag = "FluidThicknessPass";
-        private ProfilingSampler m_Thickness_Profile = new ProfilingSampler(k_RenderGrabPassTag);
-
-        private FluidRenderingUtils.FluidRendererSettings settings;
-        private FluidRenderingUtils.FluidRenderTargets renderTargets;
-
-        private Material thickness_Material;
-        private Material color_Material;
-
-        private ObiParticleRenderer[] renderers;
-
-        public void Setup(FluidRenderingUtils.FluidRendererSettings settings, FluidRenderingUtils.FluidRenderTargets renderTargets, ObiParticleRenderer[] renderers)
-        {
+            // request camera  depth and color buffers.
+            m_VolumePass.ConfigureInput(ScriptableRenderPassInput.Depth | ScriptableRenderPassInput.Color);            renderer.EnqueuePass(m_VolumePass);        }        protected override void Dispose(bool disposing)        {            m_VolumePass.Dispose();        }    }    public class VolumePass : ScriptableRenderPass    {        const string k_ThicknessPassTag = "FluidThicknessPass";        private ProfilingSampler m_Thickness_Profile = new ProfilingSampler(k_ThicknessPassTag);        private ObiFluidRenderingPass[] passes;        private int thicknessDownsample;        private float foamFadeDepth;        private Material m_TransmissionMaterial;        private RTHandle m_TransmissionHandle;        private RTHandle m_FoamHandle;        private RTHandle m_SurfHandle;        private RTHandle m_DepthHandle;        private XRSettings.StereoRenderingMode stereoMode = XRSettings.StereoRenderingMode.MultiPass;        protected Material CreateMaterial(Shader shader)        {            if (!shader || !shader.isSupported)                return null;            Material m = new Material(shader);            m.hideFlags = HideFlags.HideAndDontSave;            return m;        }        public void Setup(ObiFluidRenderingPass[] passes, int thicknessDownsample, float foamFadeDepth)        {
             // Copy settings;
-            this.settings = settings;
-            this.renderTargets = renderTargets;
-            this.renderers = renderers;
-
-            if (thickness_Material == null)
-                thickness_Material = FluidRenderingUtils.CreateMaterial(Shader.Find("Hidden/FluidThickness"));
-
-            if (color_Material == null)
-                color_Material = FluidRenderingUtils.CreateMaterial(Shader.Find("Obi/Fluid/Colors/FluidColorsBlend"));
-
-            bool shadersSupported = thickness_Material && color_Material;
-
-            if (!shadersSupported ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.Depth)  ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.RFloat) ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBHalf))
-            {
-                Debug.LogWarning("Obi Fluid Renderer not supported in this platform.");
-                return;
-            }
-        }
-
-        public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
-        {
-            cmd.GetTemporaryRT(renderTargets.thickness1, cameraTextureDescriptor.width / settings.thicknessDownsample, cameraTextureDescriptor.height / settings.thicknessDownsample, 16, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
-            cmd.GetTemporaryRT(renderTargets.thickness2, cameraTextureDescriptor.width / settings.thicknessDownsample, cameraTextureDescriptor.height / settings.thicknessDownsample, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
-
-            ConfigureTarget(renderTargets.thickness1);
-            ConfigureClear(ClearFlag.All, FluidRenderingUtils.thicknessBufferClear);
-
-        }
-
-        public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
-        {
-            if (color_Material == null) 
-                return;
-
-            color_Material.SetInt("_BlendSrc", (int)settings.particleBlendSource);
-            color_Material.SetInt("_BlendDst", (int)settings.particleBlendDestination);
-            color_Material.SetInt("_ZWrite", settings.particleZWrite ? 1 : 0);
-
-            CommandBuffer cmd = CommandBufferPool.Get(k_RenderGrabPassTag);
-            using (new ProfilingScope(cmd, m_Thickness_Profile))
-            {
-                // generate color / thickness buffer:
-                FluidRenderingUtils.VolumeReconstruction(cmd,
-                                                        renderTargets,
-                                                        thickness_Material,
-                                                        color_Material,
-                                                        renderers);
-
-                Blit(cmd,renderTargets.thickness1, renderTargets.thickness2, thickness_Material, 1);
-                Blit(cmd,renderTargets.thickness2, renderTargets.thickness1, thickness_Material, 2);
-            }
-
-            context.ExecuteCommandBuffer(cmd);
-            CommandBufferPool.Release(cmd);
-
-        }
-
-        public override void FrameCleanup(CommandBuffer cmd)
-        {
-            cmd.ReleaseTemporaryRT(renderTargets.thickness1);
-            cmd.ReleaseTemporaryRT(renderTargets.thickness2);
-        }
-    }
-
-    public class SurfaceReconstruction : ScriptableRenderPass
-    {
-        const string k_RenderGrabPassTag = "FluidSurfaceReconstruction";
-
-        private FluidRenderingUtils.FluidRendererSettings settings;
-        private FluidRenderingUtils.FluidRenderTargets renderTargets;
-
-        private Material depth_BlurMaterial;
-        private Material normal_ReconstructMaterial;
-
-        private ObiParticleRenderer[] renderers;
-
-        public void Setup(FluidRenderingUtils.FluidRendererSettings settings, FluidRenderingUtils.FluidRenderTargets renderTargets, ObiParticleRenderer[] renderers)
-        {
-            // Copy settings;
-            this.settings = settings;
-            this.renderTargets = renderTargets;
-            this.renderers = renderers;
-
-            if (depth_BlurMaterial == null)
-                depth_BlurMaterial = FluidRenderingUtils.CreateMaterial(Shader.Find("Hidden/ScreenSpaceCurvatureFlow"));
-
-            if (normal_ReconstructMaterial == null)
-                normal_ReconstructMaterial = FluidRenderingUtils.CreateMaterial(Shader.Find("Hidden/NormalReconstruction"));
-
-            bool shadersSupported = depth_BlurMaterial && normal_ReconstructMaterial;
-
-            if (!shadersSupported ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.Depth) ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.RFloat) ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBHalf))
-            {
-                Debug.LogWarning("Obi Fluid Renderer not supported in this platform.");
-                return;
-            }
-        }
-
-        public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
-        {
-            // normals/depth buffers:
-            cmd.GetTemporaryRT(renderTargets.depth, cameraTextureDescriptor.width / settings.surfaceDownsample, cameraTextureDescriptor.height / settings.surfaceDownsample, 24, FilterMode.Point, RenderTextureFormat.Depth);
-            cmd.GetTemporaryRT(renderTargets.smoothDepth, cameraTextureDescriptor.width / settings.surfaceDownsample, cameraTextureDescriptor.height / settings.surfaceDownsample, 0, FilterMode.Bilinear, RenderTextureFormat.RFloat);
-            cmd.GetTemporaryRT(renderTargets.normals, cameraTextureDescriptor.width / settings.surfaceDownsample, cameraTextureDescriptor.height / settings.surfaceDownsample, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
-
-            // use normals as a placeholder, we're only interested in the depth attachment.
-            ConfigureTarget(renderTargets.normals, renderTargets.depth);
-            ConfigureClear(ClearFlag.Depth, Color.clear);
-        }
-
-        public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
-        {
-            if (depth_BlurMaterial == null || normal_ReconstructMaterial == null)
-                return;
-
-            float blurScale = FluidRenderingUtils.SetupFluidCamera(renderingData.cameraData.camera);
-
-            depth_BlurMaterial.SetFloat("_BlurScale", blurScale);
-            depth_BlurMaterial.SetFloat("_BlurRadiusWorldspace", settings.blurRadius);
-
-
-            CommandBuffer cmd = CommandBufferPool.Get(k_RenderGrabPassTag);
-            using (new ProfilingSample(cmd, k_RenderGrabPassTag))
-            {
-
-                // surface reconstruction and dependant effects (lighting/reflection/refraction/foam)
-                if (settings.generateSurface)
-                {
-                    // normals/depth buffers:
-                    FluidRenderingUtils.SurfaceReconstruction(cmd,
-                                                              renderTargets,
-                                                              depth_BlurMaterial,
-                                                              normal_ReconstructMaterial,
-                                                              renderers);
-
-                    // blur fluid surface / reconstruct normals from smoothed depth:
-                    cmd.Blit(renderTargets.depth, renderTargets.smoothDepth, depth_BlurMaterial);
-                    cmd.Blit(renderTargets.smoothDepth, renderTargets.normals, normal_ReconstructMaterial);
-                }
-            }
-
-            context.ExecuteCommandBuffer(cmd);
-            CommandBufferPool.Release(cmd);
-
-        }
-
-        public override void FrameCleanup(CommandBuffer cmd)
-        {
-            cmd.ReleaseTemporaryRT(renderTargets.normals);
-            cmd.ReleaseTemporaryRT(renderTargets.depth);
-            cmd.ReleaseTemporaryRT(renderTargets.smoothDepth);
-        }
-    }
-
-    public class FoamPass : ScriptableRenderPass
-    {
-        const string k_RenderGrabPassTag = "FoamPass";
-        private ProfilingSampler m_Thickness_Profile = new ProfilingSampler(k_RenderGrabPassTag);
-
-        private FluidRenderingUtils.FluidRendererSettings settings;
-        private FluidRenderingUtils.FluidRenderTargets renderTargets;
-
-        private ObiParticleRenderer[] renderers;
-
-        public void Setup(FluidRenderingUtils.FluidRendererSettings settings, FluidRenderingUtils.FluidRenderTargets renderTargets, ObiParticleRenderer[] renderers)
-        {
-            // Copy settings;
-            this.settings = settings;
-            this.renderTargets = renderTargets;
-            this.renderers = renderers;
-
-            if (!SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.Depth) ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.RFloat) ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBHalf))
-            {
-                Debug.LogWarning("Obi Fluid Renderer not supported in this platform.");
-                return;
-            }
-        }
-
-        public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
-        {
-            cmd.GetTemporaryRT(renderTargets.foam, cameraTextureDescriptor.width / settings.foamDownsample, cameraTextureDescriptor.height / settings.foamDownsample, 0, FilterMode.Bilinear);
-
-            ConfigureTarget(renderTargets.foam);
-            ConfigureClear(ClearFlag.All, Color.clear);
-        }
-
-        public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
-        {
-
-            CommandBuffer cmd = CommandBufferPool.Get(k_RenderGrabPassTag);
-            using (new ProfilingScope(cmd, m_Thickness_Profile))
-            {
-                // TODO: DrawRenderer does not seem to work in URP, so switch to DrawRenderers().
-                FluidRenderingUtils.Foam(cmd, renderTargets, renderers);
-            }
-
-            context.ExecuteCommandBuffer(cmd);
-            CommandBufferPool.Release(cmd);
-
-        }
-
-        public override void FrameCleanup(CommandBuffer cmd)
-        {
-            cmd.ReleaseTemporaryRT(renderTargets.foam);
-        }
-    }
-
-    public class RenderFluidPass : ScriptableRenderPass
-    {
-        const string k_RenderGrabPassTag = "RenderFluidPass";
-
-        private FluidRenderingUtils.FluidRendererSettings settings;
-
-        private Material fluid_Material;
-
-        private FluidRenderingUtils.FluidRenderTargets renderTargets;
-
-        public RenderFluidPass(RenderTargetHandle colorHandle)
-        {
-        }
-
-        public void Setup(FluidRenderingUtils.FluidRendererSettings settings, FluidRenderingUtils.FluidRenderTargets renderTargets)
-        {
-            // Copy settings;
-            this.settings = settings;
-            this.renderTargets = renderTargets;
-
-            if (fluid_Material == null)
-                fluid_Material = FluidRenderingUtils.CreateMaterial(Shader.Find("Obi/URP/Fluid/FluidShading"));
-
-            bool shadersSupported = fluid_Material;
-
-            if (!shadersSupported ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.Depth) ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.RFloat) ||
-                !SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBHalf))
-            {
-                Debug.LogWarning("Obi Fluid Renderer not supported in this platform.");
-                return;
-            }
-        }
-
-        public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
-        {
-            if (fluid_Material == null)
-                return;
-
-            fluid_Material.SetInt("_BlendSrc", (int)settings.blendSource);
-            fluid_Material.SetInt("_BlendDst", (int)settings.blendDestination);
-            fluid_Material.SetFloat("_ThicknessCutoff", settings.thicknessCutoff);
-
-
-            CommandBuffer cmd = CommandBufferPool.Get(k_RenderGrabPassTag);
-            using (new ProfilingSample(cmd, k_RenderGrabPassTag))
-            {
-                ObiParticleRenderer[] particleRenderers = GameObject.FindObjectsOfType<ObiParticleRenderer>();
-
-                // surface reconstruction and dependant effects (lighting/reflection/refraction/foam)
-                if (settings.generateSurface)
-                {
-                    fluid_Material.SetInt("_ZTest", (int)CompareFunction.LessEqual);
-
-                    if (settings.lighting)
-                    {
-                        fluid_Material.EnableKeyword("FLUID_LIGHTING");
-                        fluid_Material.SetFloat("_Smoothness", settings.smoothness);
-                        fluid_Material.SetFloat("_AmbientMultiplier", settings.ambientMultiplier);
-                    }
-                    else
-                        fluid_Material.DisableKeyword("FLUID_LIGHTING");
-
-                    if (settings.generateReflection)
-                    {
-                        fluid_Material.EnableKeyword("FLUID_REFLECTION");
-                        fluid_Material.SetFloat("_ReflectionCoeff", settings.reflection);
-                        fluid_Material.SetFloat("_Metalness", settings.metalness);
-                    }
-                    else
-                        fluid_Material.DisableKeyword("FLUID_REFLECTION");
-
-                    if (settings.generateRefraction)
-                    {
-                        fluid_Material.EnableKeyword("FLUID_REFRACTION");
-                        fluid_Material.SetFloat("_Transparency", settings.transparency);
-                        fluid_Material.SetFloat("_AbsorptionCoeff", settings.absorption);
-                        fluid_Material.SetFloat("_RefractionCoeff", settings.refraction);
-                    }
-                    else
-                    {
-                        fluid_Material.DisableKeyword("FLUID_REFRACTION");
-                    }
-                }
-                else
-                {
-                    // no depth buffer, so always pass ztest.
-                    fluid_Material.SetInt("_ZTest", (int)CompareFunction.Always);
-
-                    fluid_Material.DisableKeyword("FLUID_LIGHTING");
-                    fluid_Material.DisableKeyword("FLUID_REFLECTION");
-                    fluid_Material.DisableKeyword("FLUID_REFRACTION");
-                }
-
-                if (settings.generateFoam)
-                {
-                    fluid_Material.EnableKeyword("FLUID_FOAM");
-                }
-                else
-                {
-                    fluid_Material.DisableKeyword("FLUID_FOAM");
-                }
-
-                Camera camera = renderingData.cameraData.camera;
-
-                cmd.SetGlobalTexture("_Volume", renderTargets.thickness1);
-
-                // Draw a quad manually, as in gameview, target does not have a depth buffer.
-                cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
-                cmd.DrawMesh(RenderingUtils.fullscreenMesh, Matrix4x4.identity, fluid_Material);
-                cmd.SetViewProjectionMatrices(camera.worldToCameraMatrix, camera.projectionMatrix);
-
-            }
-
-            context.ExecuteCommandBuffer(cmd);
-            CommandBufferPool.Release(cmd);
-
-        }
-    }
-}
-
-
-#endif
+            this.passes = passes;            this.thicknessDownsample = thicknessDownsample;            this.foamFadeDepth = foamFadeDepth;            m_TransmissionMaterial = CreateMaterial(Shader.Find("Hidden/AccumulateTransmissionURP"));            if (!SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBHalf))            {                Debug.LogWarning("Obi Fluid Renderer Feature not supported in this platform.");                return;            }        }        private Vector2Int ScaleRTs(Vector2Int size)        {            return size / thicknessDownsample;        }        public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)        {            var desc = renderingData.cameraData.cameraTargetDescriptor;            var camSize = new Vector2Int(desc.width, desc.height);            if (m_SurfHandle == null || camSize != m_SurfHandle.referenceSize || XRSettings.stereoRenderingMode != stereoMode)            {                m_TransmissionHandle?.Release();                m_FoamHandle?.Release();                m_DepthHandle?.Release();                m_SurfHandle?.Release();                // Support for single pass instanced stereo: buffers must be texture arrays of dimension 2 (one entry per eye).                stereoMode = XRSettings.stereoRenderingMode;                //VRTextureUsage vrUsage = stereoMode == XRSettings.StereoRenderingMode.SinglePassInstanced ? VRTextureUsage.TwoEyes : VRTextureUsage.None;                TextureDimension dimension = stereoMode == XRSettings.StereoRenderingMode.SinglePassInstanced ? TextureDimension.Tex2DArray : TextureDimension.Tex2D;                int slices = stereoMode == XRSettings.StereoRenderingMode.SinglePassInstanced ? 2 : 1;                m_TransmissionHandle = RTHandles.Alloc(desc.width / thicknessDownsample, desc.height / thicknessDownsample, slices, name: "_FluidThickness", colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R32G32B32A32_SFloat, /*vrUsage: vrUsage,*/ dimension: dimension);                m_SurfHandle = RTHandles.Alloc(desc.width, desc.height, slices, name: "_TemporaryBuffer", colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R32G32B32A32_SFloat, /*vrUsage: vrUsage,*/ dimension: dimension);                m_DepthHandle = RTHandles.Alloc(desc.width, desc.height, slices, name: "_TemporaryBufferDepth", depthBufferBits: DepthBits.Depth16, colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R32G32B32A32_SFloat, /*vrUsage: vrUsage,*/ dimension: dimension);                m_FoamHandle = RTHandles.Alloc(desc.width, desc.height, slices, name: "_Foam", colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R8G8B8A8_UNorm, /*vrUsage: vrUsage,*/ dimension: dimension);            }            ConfigureTarget(m_TransmissionHandle);            ConfigureClear(ClearFlag.All, FluidRenderingUtils.transmissionBufferClear);            ConfigureTarget(m_SurfHandle);            ConfigureClear(ClearFlag.All, FluidRenderingUtils.thicknessBufferClear);        }        public void Dispose()        {            m_TransmissionHandle?.Release();            m_SurfHandle?.Release();            m_DepthHandle?.Release();            m_FoamHandle?.Release();        }        public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)        {            CommandBuffer cmd = CommandBufferPool.Get(k_ThicknessPassTag);            using (new ProfilingScope(cmd, m_Thickness_Profile))            {                cmd.SetGlobalTexture("_TemporaryBuffer", m_SurfHandle);                cmd.SetGlobalTexture("_TemporaryBufferStereo", m_SurfHandle);                cmd.SetRenderTarget(m_TransmissionHandle, 0, CubemapFace.Unknown, -1);                cmd.ClearRenderTarget(false, true, FluidRenderingUtils.transmissionBufferClear);
+
+                // render each pass (there's only one mesh per pass) onto temp buffer to calculate its color and thickness.
+                for (int i = 0; i < passes.Length; ++i)                {                    if (passes[i] != null && passes[i].renderers.Count > 0)                    {                        var fluidMesher = passes[i].renderers[0];                        if (fluidMesher.actor.isLoaded)                        {                            cmd.SetRenderTarget(m_SurfHandle, m_DepthHandle, 0, CubemapFace.Unknown, -1);                            cmd.ClearRenderTarget(false, true, FluidRenderingUtils.thicknessBufferClear);
+
+                            // fluid mesh renders absorption color and thickness onto temp buffer:
+                            var renderSystem = fluidMesher.actor.solver.GetRenderSystem<ObiFluidSurfaceMesher>() as IFluidRenderSystem;                            if (renderSystem != null)                                renderSystem.RenderVolume(cmd, passes[i], fluidMesher);
+
+                            // calculate transmission from thickness & absorption and accumulate onto transmission buffer.
+                            cmd.SetGlobalFloat("_Thickness", passes[i].thickness);                            Blitter.BlitCameraTexture(cmd, m_SurfHandle, m_TransmissionHandle, m_TransmissionMaterial, 0);                        }                    }                }
+
+                // get temporary buffer with depth support, render fluid surface depth:
+                cmd.SetRenderTarget(m_SurfHandle, m_DepthHandle, 0, CubemapFace.Unknown, -1);                cmd.ClearRenderTarget(true, true, Color.clear);                for (int i = 0; i < passes.Length; ++i)                {                    if (passes[i] != null && passes[i].renderers.Count > 0)                    {                        var fluidMesher = passes[i].renderers[0];                        if (fluidMesher.actor.isLoaded)                        {
+                            // fluid mesh renders surface onto surface buffer
+                            var renderSystem = fluidMesher.actor.solver.GetRenderSystem<ObiFluidSurfaceMesher>() as IFluidRenderSystem;                            if (renderSystem != null)                                renderSystem.RenderSurface(cmd, passes[i], fluidMesher);                        }                    }                }
+
+                // render foam, using distance to surface depth to modulate alpha:
+                cmd.SetRenderTarget(m_FoamHandle, 0, CubemapFace.Unknown, -1);                cmd.ClearRenderTarget(false, true, Color.clear);                for (int i = 0; i < passes.Length; ++i)                {                    for (int j = 0; j < passes[i].renderers.Count; ++j)                    {                        if (passes[i].renderers[j].TryGetComponent(out ObiFoamGenerator foamGenerator))                        {                            var solver = passes[i].renderers[j].actor.solver;                            if (solver != null)
+                            {
+                                var rend = solver.GetRenderSystem<ObiFoamGenerator>() as ObiFoamRenderSystem;
+
+                                if (rend != null)
+                                {
+                                    rend.renderBatch.material.SetFloat("_FadeDepth", foamFadeDepth);
+                                    rend.renderBatch.material.SetFloat("_VelocityStretching", solver.maxFoamVelocityStretch);
+                                    rend.renderBatch.material.SetFloat("_FadeIn", solver.foamFade.x);
+                                    rend.renderBatch.material.SetFloat("_FadeOut", solver.foamFade.y);
+                                    cmd.DrawMesh(rend.renderBatch.mesh, solver.transform.localToWorldMatrix, rend.renderBatch.material);
+                                }                            }                        }                    }                }            }            cmd.SetGlobalTexture("_FluidThickness", m_TransmissionHandle);            cmd.SetGlobalTexture("_FluidThicknessStereo", m_TransmissionHandle);            cmd.SetGlobalTexture("_Foam", m_FoamHandle);            cmd.SetGlobalTexture("_FoamStereo", m_FoamHandle);            context.ExecuteCommandBuffer(cmd);            cmd.Clear();            CommandBufferPool.Release(cmd);        }    }}
+#endif

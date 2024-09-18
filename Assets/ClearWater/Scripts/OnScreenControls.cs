@@ -1,9 +1,9 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 public class OnScreenControls : MonoBehaviour
 {
     public Canvas controlsCanvas;
+    public GameObject buttonRestart;
 
     void Awake()
     {
@@ -13,6 +13,22 @@ public class OnScreenControls : MonoBehaviour
             controlsCanvas.gameObject.SetActive(isMobile);
 
         if (isMobile)
+        {
             Application.targetFrameRate = 60;
+        }
+        else
+        {
+            buttonRestart.SetActive(false);
+        }
+    }
+
+    public void ShowControls()
+    {
+        controlsCanvas.gameObject.SetActive(true);
+    }
+
+    public void HideControls()
+    {
+        controlsCanvas.gameObject.SetActive(false);
     }
 }

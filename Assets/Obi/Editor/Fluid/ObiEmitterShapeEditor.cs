@@ -72,7 +72,7 @@ namespace Obi{
 			
 			serializedObject.UpdateIfRequiredOrScript();
 
-			Editor.DrawPropertiesExcluding(serializedObject,"m_Script");
+			DrawPropertiesExcluding(serializedObject,"m_Script");
 			
 			// Apply changes to the serializedProperty
 			if (GUI.changed){

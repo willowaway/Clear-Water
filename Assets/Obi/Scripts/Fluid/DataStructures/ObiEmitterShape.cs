@@ -1,46 +1,19 @@
 ﻿using UnityEngine;
-using System;
-using System.Collections;
 using System.Collections.Generic;
 
-
-namespace Obi{
+namespace Obi
+{
 
 	[ExecuteInEditMode]
 	public abstract class ObiEmitterShape : MonoBehaviour
 	{
-		[Serializable]
-		public struct DistributionPoint{
-			public Vector3 position;
-			public Vector3 velocity;
-			public Color color;
-
-			public DistributionPoint(Vector3 position, Vector3 velocity){
-				this.position = position;
-				this.velocity = velocity;
-				this.color = Color.white;
-			}
-
-			public DistributionPoint(Vector3 position, Vector3 velocity, Color color){
-				this.position = position;
-				this.velocity = velocity;
-				this.color = color;
-			}
-
-			public DistributionPoint GetTransformed(Matrix4x4 transform, Color multiplyColor){
-				return new DistributionPoint(transform.MultiplyPoint3x4(position),
-											 transform.MultiplyVector(velocity),
-										     color*multiplyColor);
-			}
-		}
-
 		[SerializeProperty("Emitter")]
 		[SerializeField] protected ObiEmitter emitter;
 
 		public Color color = Color.white;
 
 		[HideInInspector] public float particleSize = 0;
-		[HideInInspector] public List<DistributionPoint> distribution = new List<DistributionPoint>();
+		[HideInInspector] public List<EmitPoint> distribution = new List<EmitPoint>();
 
 		protected Matrix4x4 l2sTransform;
 

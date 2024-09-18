@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using System.Collections.Generic;
+using System;
 
 namespace Obi
 {
@@ -25,7 +26,12 @@ namespace Obi
             /// Emits a single burst of particles from the emitter, and does not emit any more until
             /// all alive particles have died.
             /// </summary>
-            BURST       
+            BURST,
+
+            /// <summary>  
+            /// Will not automatically emit particles. The user needs to call EmitParticle() manually.
+            /// </summary>
+            MANUAL
         }
 
         public ObiEmitterBlueprintBase emitterBlueprint;
@@ -71,11 +77,11 @@ namespace Obi
         public float lifespan = 4;
 
         /// <summary>  
-        /// Amount of random velocity added to particles when emitted.
+        /// Amount of randomness added to particle direction when emitted.
         /// </summary>
         [Range(0, 1)]
-        [Tooltip("Amount of randomization applied to particles.")]
-        public float randomVelocity = 0;
+        [Tooltip("Amount of randomization applied to particle emit direction.")]
+        public float randomDirection = 0;
 
         /// <summary>  
         /// Use the emitter shape color to tint particles upon emission.
@@ -84,16 +90,14 @@ namespace Obi
         public bool useShapeColor = true;
 
         [HideInInspector] [SerializeField] private List<ObiEmitterShape> emitterShapes = new List<ObiEmitterShape>();
-        private IEnumerator<ObiEmitterShape.DistributionPoint> distEnumerator;
+        private IEnumerator<EmitPoint> distEnumerator;
 
+        private EmittedParticleData emissionData;
 
-        /// <summary>  
-        /// Per particle remaining life (in seconds).
-        /// </summary>
-        [HideInInspector] public float[] life;     
+        [NonSerialized] private ObiNativeEmitPointList emitPoints;
 
         private float unemittedBursts = 0;
-        private bool m_IsEmitting = false;
+        private bool manualKill = false;
 
         /// <summary>  
         /// Collision filter value used by fluid particles.
@@ -115,10 +119,7 @@ namespace Obi
         /// <summary>  
         /// Whether the emitter is currently emitting particles.
         /// </summary>
-        public bool isEmitting
-        {
-            get { return m_IsEmitting; }
-        }
+        public bool isEmitting { get; private set; } = false;
 
         /// <summary>
         /// Whether to use simplices (triangles, edges) for contact generation.
@@ -137,15 +138,6 @@ namespace Obi
         }
 
         /// <summary>  
-        /// Whether this actor applies external forces in a custom way. 
-        /// </summary>
-        /// In case of fluid, this is true as forces are interpreted as wind and affected by athmospheric drag.
-        public override bool usesCustomExternalForces
-        {
-            get { return true; }
-        }
-
-        /// <summary>  
         /// Whether this actor makes use of particle anisotropy
         /// </summary>
         /// In case of fluid, this is true as particles adapt their shape to fit the fluid's surface.
@@ -154,22 +146,54 @@ namespace Obi
             get { return true; }
         }
 
+
+        protected override void Awake()
+        {
+            base.Awake();
+            emitPoints = new ObiNativeEmitPointList();
+        }
+
+        protected override void OnDestroy()
+        {
+            base.OnDestroy();
+
+            emitPoints?.Dispose();
+            emitPoints = null;
+        }
+
         public override void LoadBlueprint(ObiSolver solver)
         {
             base.LoadBlueprint(solver);
 
-            //Copy local arrays:
-            life = new float[particleCount];
-            for (int i = 0; i < life.Length; ++i)
-                life[i] = lifespan;
+            UpdateEmitter();
 
-            UpdateParticleMaterial();
+            // bring existing orientation data from GPU right away:
+            ObiFluidEmitterBlueprint fluidMaterial = emitterBlueprint as ObiFluidEmitterBlueprint;
+
+            if (fluidMaterial == null)
+                solver.orientations.Readback(false);
+            else if (fluidMaterial.miscibility > 0)
+                solver.userData.Readback(false);
+            solver.life.Readback(false);
         }
 
         protected override void OnValidate()
         {
             base.OnValidate();
-            UpdateEmitterDistribution();
+            UpdateEmitter();
+        }
+
+        public override void RequestReadback()
+        {
+            base.RequestReadback();
+
+            ObiFluidEmitterBlueprint fluidMaterial = emitterBlueprint as ObiFluidEmitterBlueprint;
+
+            if (fluidMaterial == null)
+                solver.orientations.Readback();
+            else if (fluidMaterial.miscibility > 0)
+                solver.userData.Readback();
+            solver.life.Readback();
         }
 
         /// <summary>  
@@ -205,20 +229,24 @@ namespace Obi
         /// <summary>  
         /// Updates the spawn point distribution of all shapes used by this emitter.
         /// </summary>
-        public void UpdateEmitterDistribution()
+        public void UpdateEmitter()
         {
             if (solver != null)
             {
+                // Update all shape's distribution:
                 for (int i = 0; i < emitterShapes.Count; ++i)
                 {
                     emitterShapes[i].particleSize = (emitterBlueprint != null) ? emitterBlueprint.GetParticleSize(m_Solver.parameters.mode) : 0.1f;
                     emitterShapes[i].GenerateDistribution();
                 }
                 distEnumerator = GetDistributionEnumerator();
+
+                // generate and store data to set to emitted particles:
+                CacheEmissionData();
             }
         }
 
-        private IEnumerator<ObiEmitterShape.DistributionPoint> GetDistributionEnumerator()
+        private IEnumerator<EmitPoint> GetDistributionEnumerator()
         {
 
             // In case there are no shapes, emit using the emitter itself as a single-point shape.
@@ -227,7 +255,7 @@ namespace Obi
                 while (true)
                 {
                     Matrix4x4 l2sTransform = actorLocalToSolverMatrix;
-                    yield return new ObiEmitterShape.DistributionPoint(l2sTransform.GetColumn(3), l2sTransform.GetColumn(2), Color.white);
+                    yield return new EmitPoint(l2sTransform.GetColumn(3), l2sTransform.GetColumn(2), Color.white);
                 }
             }
 
@@ -239,7 +267,7 @@ namespace Obi
                     ObiEmitterShape shape = emitterShapes[j];
 
                     if (shape.distribution.Count == 0)
-                        yield return new ObiEmitterShape.DistributionPoint(shape.ShapeLocalToSolverMatrix.GetColumn(3), shape.ShapeLocalToSolverMatrix.GetColumn(2), Color.white);
+                        yield return new EmitPoint(shape.ShapeLocalToSolverMatrix.GetColumn(3), shape.ShapeLocalToSolverMatrix.GetColumn(2), Color.white);
 
                     for (int i = 0; i < shape.distribution.Count; ++i)
                         yield return shape.distribution[i].GetTransformed(shape.ShapeLocalToSolverMatrix, shape.color);
@@ -247,14 +275,6 @@ namespace Obi
                 }
             }
 
-        }
-
-        public void UpdateParticleMaterial()
-        {
-            for (int i = 0; i < activeParticleCount; ++i)
-                UpdateParticleMaterial(i);
-
-            UpdateEmitterDistribution();
         }
 
         public override void SetSelfCollisions(bool selfCollisions)
@@ -265,7 +285,7 @@ namespace Obi
                 if (emitterBlueprint != null && !(emitterBlueprint is ObiFluidEmitterBlueprint))
                     particleFlags = 0;
 
-                for (int i = 0; i < solverIndices.Length; i++)
+                for (int i = 0; i < solverIndices.count; i++)
                 {
                     int group = ObiUtils.GetGroupFromPhase(m_Solver.phases[solverIndices[i]]);
                     m_Solver.phases[solverIndices[i]] = ObiUtils.MakePhase(group, (selfCollisions ? ObiUtils.ParticleFlags.SelfCollide : 0) | particleFlags);
@@ -277,125 +297,99 @@ namespace Obi
         {
             if (solver != null && isLoaded)
             {
-                for (int i = 0; i < solverIndices.Length; i++)
+                for (int i = 0; i < solverIndices.count; i++)
                     m_Solver.filters[solverIndices[i]] = filter;
             }
         }
 
-        private void UpdateParticleResolution(int index)
+        private void CacheEmissionData()
         {
-
-            if (m_Solver == null) return;
-
             ObiFluidEmitterBlueprint fluidMaterial = emitterBlueprint as ObiFluidEmitterBlueprint;
 
-            int solverIndex = solverIndices[index];
-
+            // calculate rest distance and mass:
             float restDistance = (emitterBlueprint != null) ? emitterBlueprint.GetParticleSize(m_Solver.parameters.mode) : 0.1f;
             float pmass = (emitterBlueprint != null) ? emitterBlueprint.GetParticleMass(m_Solver.parameters.mode) : 0.1f;
-            float radius;
 
-            if (emitterBlueprint != null && fluidMaterial == null)
-            {
-                float randomRadius = UnityEngine.Random.Range(0, restDistance / 100.0f * (emitterBlueprint as ObiGranularEmitterBlueprint).randomness);
-                radius = Mathf.Max(0.001f + restDistance * 0.5f - randomRadius);
-            }
-            else
-                radius = restDistance * 0.5f;
+            // calculate particle physical radius and volume:
+            emissionData.radius = restDistance * 0.5f;
+            emissionData.volume = 1 / Mathf.Pow(Mathf.Abs(emissionData.radius * 2), 3 - (int)m_Solver.parameters.mode);
 
-            m_Solver.principalRadii[solverIndex] = Vector3.one * radius;
+            // calculate fluid smoothing radius:
+            float smoothingRadius;
             if (emitterBlueprint != null)
-                m_Solver.smoothingRadii[solverIndex] = fluidMaterial != null ? fluidMaterial.GetSmoothingRadius(m_Solver.parameters.mode) : 0;
+                smoothingRadius = fluidMaterial != null ? fluidMaterial.GetSmoothingRadius(m_Solver.parameters.mode) : 0;
             else
-                m_Solver.smoothingRadii[solverIndex] = 1f / (10 * Mathf.Pow(1, 1 / (m_Solver.parameters.mode == Oni.SolverParameters.Mode.Mode3D ? 3.0f : 2.0f)));
+                smoothingRadius = 1f / (10 * Mathf.Pow(1, 1 / (m_Solver.parameters.mode == Oni.SolverParameters.Mode.Mode3D ? 3.0f : 2.0f)));
 
-            m_Solver.invMasses[solverIndex] = 1 / pmass;
-            m_Solver.invRotationalMasses[solverIndex] = m_Solver.invMasses[solverIndex];
-
-        }
-
-        private void UpdateParticleMaterial(int index)
-        {
-
-            if (m_Solver == null) return;
-
-            UpdateParticleResolution(index);
-
-            ObiFluidEmitterBlueprint fluidMaterial = emitterBlueprint as ObiFluidEmitterBlueprint;
-
-            int solverIndex = solverIndices[index];
-
-            m_Solver.restDensities[solverIndex] = fluidMaterial != null ? fluidMaterial.restDensity : 0;
-            m_Solver.viscosities[solverIndex] = fluidMaterial != null ? fluidMaterial.viscosity : 0;
-            m_Solver.vortConfinement[solverIndex] = fluidMaterial != null ? fluidMaterial.vorticity : 0;
-            m_Solver.surfaceTension[solverIndex] = fluidMaterial != null ? fluidMaterial.surfaceTension : 0;
-            m_Solver.buoyancies[solverIndex] = fluidMaterial != null ? fluidMaterial.buoyancy : -1;
-            m_Solver.atmosphericDrag[solverIndex] = fluidMaterial != null ? fluidMaterial.atmosphericDrag : 0;
-            m_Solver.atmosphericPressure[solverIndex] = fluidMaterial != null ? fluidMaterial.atmosphericPressure : 0;
-            m_Solver.diffusion[solverIndex] = fluidMaterial != null ? fluidMaterial.diffusion : 0;
-            m_Solver.userData[solverIndex] = fluidMaterial != null ? fluidMaterial.diffusionData : Vector4.zero;
-            m_Solver.filters[solverIndex] = filter;
+            emissionData.fluidMaterial = fluidMaterial != null ? new Vector4(smoothingRadius, fluidMaterial.polarity, fluidMaterial.viscosity, fluidMaterial.vorticity) : Vector4.zero;
+            emissionData.fluidInterface = fluidMaterial != null ? new Vector4(fluidMaterial.atmosphericDrag, fluidMaterial.atmosphericPressure, fluidMaterial.buoyancy, fluidMaterial.miscibility) : new Vector4(0, 0, -1, 0);
+            emissionData.userData = fluidMaterial != null ? fluidMaterial.userData : Vector4.zero;
+            emissionData.invMass = 1 / pmass;
 
             ObiUtils.ParticleFlags particleFlags = ObiUtils.ParticleFlags.Fluid;
             if (emitterBlueprint != null && fluidMaterial == null)
                 particleFlags = 0;
 
-            var group = ObiUtils.GetGroupFromPhase(m_Solver.phases[solverIndex]);
-            m_Solver.phases[solverIndex] = ObiUtils.MakePhase(group, ObiUtils.ParticleFlags.SelfCollide | particleFlags);
+            emissionData.phase = ObiUtils.MakePhase(groupID, ObiUtils.ParticleFlags.SelfCollide | particleFlags);
         }
 
-        protected override void SwapWithFirstInactiveParticle(int actorIndex)
+       /* protected override void SwapWithFirstInactiveParticle(int actorIndex)
         {
             base.SwapWithFirstInactiveParticle(actorIndex);
             life.Swap(actorIndex, activeParticleCount);
-        }
+        }*/
 
-        private void ResetParticle(int index, float offset, float deltaTime)
+        /// <summary>
+        /// Activates one particle. Specialized implementation, optimized to activate large amounts of particles per step. Does not
+        /// flag active particles and simplices as dirty (which requires the solver to rebuild them), instead it appends to their end.
+        /// </summary>
+        /// <returns>
+        /// True if a particle could be activated. False if there are no particles to activate.
+        /// </returns> 
+        /// This operation preserves the relative order of all particles.
+        public override bool ActivateParticle()
         {
+            if (activeParticleCount >= particleCount)
+                return false;
 
-            distEnumerator.MoveNext();
-            ObiEmitterShape.DistributionPoint distributionPoint = distEnumerator.Current;
+            int index = solverIndices[m_ActiveParticleCount];
 
-            Vector3 spawnVelocity = Vector3.Lerp(distributionPoint.velocity, UnityEngine.Random.onUnitSphere, randomVelocity);
-            Vector3 positionOffset = spawnVelocity * (speed * deltaTime) * offset;
+            m_Solver.points.Add(index);
+            m_Solver.simplices.Add(index);
+            m_Solver.activeParticles.Add(index);
 
-            int solverIndex = solverIndices[index];
+            m_Solver.m_SimplexCounts.pointCount++;
+            m_ActiveParticleCount++;
 
-            m_Solver.startPositions[solverIndex] = m_Solver.positions[solverIndex] = distributionPoint.position + positionOffset;
-            m_Solver.velocities[solverIndex] = spawnVelocity * speed;
+            m_Solver.cellCoords.Add(default);
 
-            UpdateParticleMaterial(index);
-
-            if (useShapeColor)
-                m_Solver.colors[solverIndex] = distributionPoint.color;
+            return true;
         }
 
         /// <summary>  
         /// Asks the emitter to emit a new particle. Returns whether the emission was succesful.
         /// </summary>
         /// <param name="offset"> Distance from the emitter surface at which the particle should be emitted.</param>
-        /// <param name="deltaTime"> Duration of the last step in seconds.</param>
         /// <returns>
         /// If at least one particle was in the emission pool and it could be emitted, will return true. False otherwise.
         /// </returns> 
-        public bool EmitParticle(float offset, float deltaTime)
+        public bool EmitParticle(float offset)
         {
-
-            if (activeParticleCount == particleCount) return false;
-
-            life[activeParticleCount] = lifespan;
-
-            // move particle to its spawn position:
-            ResetParticle(activeParticleCount, offset, deltaTime);
-
-            // now there's one active particle more:
-            if (!ActivateParticle(activeParticleCount))
+            if (emitPoints.count >= particleCount - activeParticleCount)
                 return false;
 
-            if (OnEmitParticle != null)
-                OnEmitParticle(this, activeParticleCount - 1);
+            // move on to next emission point:
+            distEnumerator.MoveNext();
+            EmitPoint distributionPoint = distEnumerator.Current;
 
-            m_IsEmitting = true;
+            // randomize spawn direction:
+            distributionPoint.direction = Vector3.Lerp(distributionPoint.direction, UnityEngine.Random.onUnitSphere, randomDirection);
+
+            // offset spawn position, then scale direction by speed to get velocity:
+            distributionPoint.position += distributionPoint.direction * offset;
+            distributionPoint.direction *= speed;
+
+            emitPoints.Add(distributionPoint);
 
             return true;
         }
@@ -408,15 +402,14 @@ namespace Obi
         /// </returns> 
         public bool KillParticle(int index)
         {
-            // reduce amount of active particles:
-            if (!DeactivateParticle(index))
-                return false;
+            if (index >= 0 && index < solverIndices.count && solver.life[solverIndices[index]] > 0)
+            {
+                solver.life[solverIndices[index]] = 0;
+                manualKill = true;
+                return true;
+            }
 
-            if (OnKillParticle != null)
-                OnKillParticle(this, activeParticleCount);
-
-            return true;
-
+            return false;
         }
 
         /// <summary>  
@@ -424,10 +417,9 @@ namespace Obi
         /// </summary>
         public void KillAll()
         {
-            for (int i = activeParticleCount - 1; i >= 0; --i)
-            {
-                KillParticle(i);
-            }
+            for (int i = 0; i < activeParticleCount; ++i)
+                solver.life[solverIndices[i]] = 0;
+            manualKill = true;
         }
 
         private int GetDistributionPointsCount()
@@ -438,69 +430,171 @@ namespace Obi
             return Mathf.Max(1, size);
         }
 
-        public override void BeginStep(float stepTime)
+        private void EmitParticles()
         {
-            base.BeginStep(stepTime);
+            // clamp amount of emitted particles so we don't emit more particles than available in the indices array.
+            int emitCount = Mathf.Min(Mathf.Max(0, particleCount - activeParticleCount), emitPoints.count);
+
+            for (int i = 0; i < emitCount; ++i)
+            {
+                int index = activeParticleCount;
+                if (!ActivateParticle())
+                    continue;
+
+                int solverIndex = solverIndices[index];
+
+                solver.life[solverIndex] = lifespan;
+
+                m_Solver.startPositions[solverIndex] = m_Solver.endPositions[solverIndex] = m_Solver.positions[solverIndex] = emitPoints[i].position;
+                m_Solver.velocities[solverIndex] = emitPoints[i].direction;
+                m_Solver.orientations[solverIndex] = Quaternion.LookRotation(emitPoints[i].direction);
+
+                float radius = emissionData.radius;
+                if (emitterBlueprint is ObiGranularEmitterBlueprint)
+                {
+                    float randomRadius = UnityEngine.Random.Range(0, radius * 2 / 100.0f * (emitterBlueprint as ObiGranularEmitterBlueprint).randomness);
+                    radius = Mathf.Max(0.001f, radius - randomRadius);
+                }
+
+                m_Solver.principalRadii[solverIndex] = new Vector4(radius, radius, radius, 1); // set active particle radius W to 1.
+                m_Solver.invMasses[solverIndex] = m_Solver.invRotationalMasses[solverIndex] = emissionData.invMass;
+
+                m_Solver.fluidMaterials[solverIndex] = emissionData.fluidMaterial;
+                m_Solver.fluidInterface[solverIndex] = emissionData.fluidInterface;
+                m_Solver.userData[solverIndex] = emissionData.userData;
+                m_Solver.phases[solverIndex] = emissionData.phase;
+                m_Solver.filters[solverIndex] = filter;
+                m_Solver.fluidData[solverIndex] = new Vector4(emissionData.volume, 0, 0, 0);
+
+                // inject invmass in 4th component of position:
+                var pos = m_Solver.positions[solverIndex];
+                pos.w = m_Solver.invMasses[solverIndex];
+                m_Solver.positions[solverIndex] = pos;
+
+                if (useShapeColor)
+                    m_Solver.colors[solverIndex] = (Vector4)emitPoints[i].color;
+
+                OnEmitParticle?.Invoke(this, activeParticleCount - 1);
+
+                isEmitting = true;
+            }
+
+            // In case any particles have been emitted, notify the solver implementation
+            // that the amount of active particles and simplices has changed:
+            // TODO: do this in solver, as other emitters might flag as dirty after this one, and it might
+            // not be necessary to do this.
+            if (!m_Solver.dirtyActiveParticles && emitCount > 0 && isEmitting)
+            {
+                m_Solver.implementation.SetActiveParticles(m_Solver.activeParticles);
+                m_Solver.implementation.SetSimplices(m_Solver.simplices, m_Solver.simplexCounts);
+            }
+        }
+
+        private void UpdateLifetime(float deltaTime)
+        {
+            for (int i = activeParticleCount - 1; i >= 0; --i)
+            {
+                solver.life[solverIndices[i]] -= deltaTime;
+
+                if (solver.life[solverIndices[i]] <= 0)
+                {
+                    DeactivateParticle(i);
+                    OnKillParticle?.Invoke(this, activeParticleCount);
+                }
+            }
+        }
+
+        public override void SimulationStart(float timeToSimulate, float substepTime)
+        {
+            base.SimulationStart(timeToSimulate, substepTime);
+
+            UnityEngine.Profiling.Profiler.BeginSample("Emitter lifecycle");
+
+            // wait for data to arrive from the GPU.
+            ObiFluidEmitterBlueprint fluidMaterial = emitterBlueprint as ObiFluidEmitterBlueprint;
+            if (fluidMaterial == null)
+                solver.orientations.WaitForReadback();
+            else if (fluidMaterial.miscibility > 0)
+                solver.userData.WaitForReadback();
+            solver.life.WaitForReadback();
 
             // cache a per-shape matrix that transforms from shape local space to solver space.
             for (int j = 0; j < emitterShapes.Count; ++j)
-            {
                 emitterShapes[j].UpdateLocalToSolverMatrix();
-            }
 
             // Update lifetime and kill dead particles:
-            for (int i = activeParticleCount - 1; i >= 0; --i)
+            if (!float.IsInfinity(lifespan) || manualKill)
             {
-                life[i] -= stepTime;
-
-                if (life[i] <= 0)
-                {
-                    KillParticle(i);
-                }
+                UpdateLifetime(timeToSimulate);
+                manualKill = false;
             }
 
             int emissionPoints = GetDistributionPointsCount();
-
             int pooledParticles = particleCount - activeParticleCount;
 
             if (pooledParticles == 0)
-                m_IsEmitting = false;
-
-            if (m_IsEmitting || pooledParticles > Mathf.FloorToInt(minPoolSize * particleCount))
             {
+                if (isEmitting)
+                    distEnumerator = GetDistributionEnumerator();
+                isEmitting = false;
+            }
+
+            if (isEmitting || pooledParticles > Mathf.FloorToInt(minPoolSize * particleCount))
+            {
+                // SimulationStart might be called before our awake, so we need to lazy initialize emitPoints:
+                if (emitPoints == null)                    emitPoints = new ObiNativeEmitPointList();
 
                 // stream emission:
-                if (emissionMethod == EmissionMethod.STREAM)
+                switch (emissionMethod)
                 {
-                    // number of bursts per simulation step:
-                    float burstCount = (speed * stepTime) / ((emitterBlueprint != null) ? emitterBlueprint.GetParticleSize(m_Solver.parameters.mode) : 0.1f);
+                    case EmissionMethod.STREAM:
 
-                    // Emit new particles:
-                    unemittedBursts += burstCount;
-                    int burst = 0;
-                    while (unemittedBursts > 0)
-                    {
-                        for (int i = 0; i < emissionPoints; ++i)
-                        {
-                            EmitParticle(burst / burstCount, stepTime);
-                        }
-                        unemittedBursts -= 1;
-                        burst++;
-                    }
-                }
-                else
-                { // burst emission:
+                        // number of bursts per simulation step:
+                        float particleSize = ((emitterBlueprint != null) ? emitterBlueprint.GetParticleSize(m_Solver.parameters.mode) : 0.1f);
+                        float burstCount = speed * timeToSimulate / particleSize;
 
-                    if (activeParticleCount == 0)
-                    {
-                        for (int i = 0; i < emissionPoints; ++i)
+                        // Emit new particle burst:
+                        unemittedBursts += burstCount;
+
+                        emitPoints.EnsureCapacity((int)unemittedBursts * emissionPoints);
+
+                        while (unemittedBursts >= 1)
                         {
-                            EmitParticle(0, stepTime);
+                            unemittedBursts -= 1;
+
+                            for (int i = 0; i < emissionPoints; ++i)
+                                EmitParticle(unemittedBursts * particleSize);
                         }
-                    }
+
+                        EmitParticles();
+                        emitPoints.Clear();
+
+                        break;
+
+                    case EmissionMethod.BURST:
+
+                        // single burst when there's no active particles:
+                        if (activeParticleCount == 0)
+                        {
+                            emitPoints.EnsureCapacity(emissionPoints);
+
+                            for (int i = 0; i < emissionPoints; ++i)
+                                EmitParticle(0);
+
+                            EmitParticles();
+                            emitPoints.Clear();
+                        }
+
+                        break;
+
+                    default:
+                        EmitParticles();
+                        emitPoints.Clear();
+                        break;
                 }
             }
 
+            UnityEngine.Profiling.Profiler.EndSample();
         }
     }
 }

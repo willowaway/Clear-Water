@@ -122,7 +122,7 @@ namespace Obi
                 onContactExit.Invoke(solver, prevData[b++]);
         }
 
-        void Solver_OnCollision(object sender, ObiSolver.ObiCollisionEventArgs args)
+        void Solver_OnCollision(object sender, ObiNativeContactList contacts)
         {
             // here we access the internal backing array (Data) directly,
             // instead of using the accessor property. This slightly improves performance.
@@ -130,7 +130,7 @@ namespace Obi
             // need to use args.contacts.Count to get the actual number of contacts.
 
             // skip all contacts above the distance threshold by moving them to the end of the array:
-            int filteredCount = FilterOutDistantContacts(args.contacts.Data, args.contacts.Count);
+            /*int filteredCount = FilterOutDistantContacts(contacts, args.contacts.Count);
 
             // sort the remaining contacts by collider, then by actor:
             Array.Sort(args.contacts.Data, 0, filteredCount, comparer);
@@ -147,7 +147,7 @@ namespace Obi
                 Array.Resize(ref prevData, filteredCount);
             Array.Copy(args.contacts.Data, prevData, filteredCount);
 
-            prevCount = filteredCount;
+            prevCount = filteredCount;*/
         }
 
     }

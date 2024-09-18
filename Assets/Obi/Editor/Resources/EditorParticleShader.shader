@@ -18,8 +18,8 @@
                 #pragma fragment frag
                 #pragma fragmentoption ARB_precision_hint_fastest
 
-                #include "../../Resources/ObiMaterials/ObiEllipsoids.cginc"
-                #include "../../Resources/ObiMaterials/ObiUtils.cginc"
+                #include "../../Resources/ObiMaterials/Common/ObiEllipsoids.cginc"
+                #include "../../Resources/ObiMaterials/Common/ObiUtils.cginc"
 
                 fixed4 _Color;
 
