@@ -5,41 +5,64 @@ using UnityEngine.SceneManagement;
 
 public class StageController : MonoBehaviour
 {
-    public GameObject popupStage;
+    public GameObject panelStageSelect;
     public GameObject popupStageReady;
     public GameObject popupStageLocked;
 
+    public GameObject totalStarsText;
     public GameObject stageContainer;
-    public List<GameObject> stages;
-    public GameObject stageComplete;
-    public GameObject stageDefault;
-    public GameObject stageLock;
 
-    private int currentStage;
-    private List<int> stageProgress;
+    public GameObject stagePrefab;
+    public int currentStage = 1;
+    public int numberOfStages = 18;
+    public List<GameObject> stages;
 
     // Start is called before the first frame update
     void Start()
     {
-        stageProgress = new List<int>(3);
+        if (ES3.KeyExists("stages"))
+        {
+            stages = ES3.Load<List<GameObject>>("stages");
+        }
+        else
+        {
+            // Delete the placeholder stage panels
+            while (stageContainer.transform.childCount > 0)
+            {
+                DestroyImmediate(stageContainer.transform.GetChild(0).gameObject);
+            }
+
+            stages = new List<GameObject>(numberOfStages);
+
+            for (int stageIndex = 0;  stageIndex < numberOfStages; ++stageIndex)
+            {
+                GameObject stage = Instantiate(stagePrefab, Vector3.zero, Quaternion.identity);
+                stage.GetComponent<Stage>().stageNumber = stageIndex + 1;
+                stages.Add(stage);
+                stage.transform.parent = stageContainer.transform;
+                stage.transform.localScale = Vector3.one;
+            }
+            Stage firstStage = stages[0].GetComponent<Stage>();
+            firstStage.SetDefault();
+        }
+
+        if (ES3.KeyExists("currentStage"))
+        {
+            currentStage = ES3.Load<int>("currentStage");
+        }
+        else
+        {
+            currentStage = 1;
+        }
     }
 
     public void OpenStageSelect()
     {
-        popupStage.SetActive(true);
+        panelStageSelect.SetActive(true);
     }
 
-    /// <summary>
-    /// Loads a stage based on the list of scene numbers
-    /// </summary>
-    /// <param name="stage"></param>
-    public void LoadStage(int stage)
+    public void CloseStageSelect()
     {
-        SceneManager.LoadScene(stage);
-    }
-
-    public void NextStage()
-    {
-
+        panelStageSelect.SetActive(false);
     }
 }
