@@ -24,8 +24,8 @@ public class GameController : MonoBehaviour
     public TextMeshProUGUI popupFailedFinishText;
 
     [Space(10)]
-    [Header("On Screen Controls")]
-    public OnScreenControls onScreenControls;
+    [Header("Game UI")]
+    public GameObject gameUI;
 
     public void UpdateScore(int finishedParticles, int coloredParticles)
     {
@@ -50,7 +50,7 @@ public class GameController : MonoBehaviour
 
     private void LevelComplete(int purity)
     {
-        onScreenControls.HideControls();
+        gameUI.SetActive(false);
 
         popupCompletePurityPercent.text = purity + "%";
 
@@ -72,7 +72,7 @@ public class GameController : MonoBehaviour
 
     private void LevelFailed(int purity)
     {
-        onScreenControls.HideControls();
+        gameUI.SetActive(false);
 
         popupFailedPurityPercent.text = purity + "%";
         popupFailedFinishText.text = "Not enough purity";
