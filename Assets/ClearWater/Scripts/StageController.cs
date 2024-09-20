@@ -5,15 +5,10 @@ using UnityEngine.SceneManagement;
 
 public class StageController : MonoBehaviour
 {
-    public GameObject panelStageSelect;
-    public GameObject popupStageReady;
-    public GameObject popupStageLocked;
-
     public GameObject totalStarsText;
     public GameObject stageContainer;
 
     public GameObject stagePrefab;
-    public int currentStage = 1;
     public int numberOfStages = 18;
     public List<GameObject> stages;
 
@@ -26,12 +21,6 @@ public class StageController : MonoBehaviour
         }
         else
         {
-            // Delete the placeholder stage panels
-            while (stageContainer.transform.childCount > 0)
-            {
-                DestroyImmediate(stageContainer.transform.GetChild(0).gameObject);
-            }
-
             stages = new List<GameObject>(numberOfStages);
 
             for (int stageIndex = 0;  stageIndex < numberOfStages; ++stageIndex)
@@ -45,24 +34,21 @@ public class StageController : MonoBehaviour
             Stage firstStage = stages[0].GetComponent<Stage>();
             firstStage.SetDefault();
         }
-
-        if (ES3.KeyExists("currentStage"))
-        {
-            currentStage = ES3.Load<int>("currentStage");
-        }
-        else
-        {
-            currentStage = 1;
-        }
     }
 
-    public void OpenStageSelect()
+    public void SaveStage(int currentStage, int stars)
     {
-        panelStageSelect.SetActive(true);
+        Stage stage = stages[currentStage].GetComponent<Stage>();
+        stage.stars = stars;
+        stage.isLocked = false;
+
+        if (currentStage + 1 < numberOfStages)
+        {
+            Stage nextStage = stages[currentStage + 1].GetComponent<Stage>();
+            nextStage.SetDefault();
+        }
+
+        ES3.Save<List<GameObject>>("stages", stages);
     }
 
-    public void CloseStageSelect()
-    {
-        panelStageSelect.SetActive(false);
-    }
 }

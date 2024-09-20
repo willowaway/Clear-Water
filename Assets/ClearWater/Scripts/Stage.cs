@@ -18,7 +18,7 @@ public class Stage : MonoBehaviour
     public Sprite outlineStarSprite;
     public GameObject stageLock;
     public List<GameObject> starGameObjects;
-    
+
     public Stage()
     {
         stageNumber = 0;
@@ -29,6 +29,9 @@ public class Stage : MonoBehaviour
 
     void Start()
     {
+        Button btn = GetComponent<Button>();
+        btn.onClick.AddListener(LoadStage);
+
         TextMeshProUGUI stageText = stageNumberText.GetComponent<TextMeshProUGUI>();
         stageText.text = stageNumber.ToString();
 
