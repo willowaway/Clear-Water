@@ -9,7 +9,6 @@ public class GameController : MonoBehaviour
 {
     public TextMeshProUGUI completionLabel;
     public TextMeshProUGUI purityLabel;
-    public int currentStage = 1;
     public StageController stageController;
 
     [Header("Popups")]
@@ -36,14 +35,6 @@ public class GameController : MonoBehaviour
 
     void Start()
     {
-        if (ES3.KeyExists("currentStage"))
-        {
-            currentStage = ES3.Load<int>("currentStage");
-        }
-        else
-        {
-            currentStage = 1;
-        }
     }
 
     public void UpdateScore(int finishedParticles, int coloredParticles)
@@ -54,7 +45,7 @@ public class GameController : MonoBehaviour
         completionLabel.text = completion + "%";
         purityLabel.text = purity + "%";
 
-        if (completion > 90)
+        if (completion > 90 && gameUI.activeSelf)
         {
             if (purity > 50)
             {
@@ -101,7 +92,7 @@ public class GameController : MonoBehaviour
 
         popupComplete.SetActive(true);
 
-        stageController.SaveStage(currentStage, stars);
+        stageController.CompleteCurrentStage(stars);
     }
 
     private void LevelFailed(int purity)
@@ -117,20 +108,16 @@ public class GameController : MonoBehaviour
     public void RestartStage()
     {
         popupComplete.SetActive(false);
-        SceneManager.LoadScene(currentStage);
+        SceneManager.LoadScene(stageController.currentStage);
     }
 
-    public void NextStage()
-    {
-        currentStage++;
-        ES3.Save("currentStage", currentStage);
-        SceneManager.LoadScene(currentStage);
-    }
     public void OpenStageSelect()
     {
         panelStageSelect.SetActive(true);
         popupComplete.SetActive(false);
         popupFailed.SetActive(false);
+
+        stageController.LoadStages();
     }
 
     public void CloseStageSelect()

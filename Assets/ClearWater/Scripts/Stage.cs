@@ -6,10 +6,7 @@ using TMPro;
 using UnityEngine.SceneManagement;
 public class Stage : MonoBehaviour
 {
-    public int stageNumber;
-    public int stars;
-    public bool isLocked;
-    public bool hasAttempted;
+    public StageData stageData;
     public GameObject stageNumberText;
     public Sprite stageAttemptedBackgroundSprite;
     public Sprite stageDefaultBackgroundSprite;
@@ -19,46 +16,43 @@ public class Stage : MonoBehaviour
     public GameObject stageLock;
     public List<GameObject> starGameObjects;
 
-    public Stage()
-    {
-        stageNumber = 0;
-        stars = 0;
-        isLocked = true;
-        hasAttempted = false;
-    }
-
     void Start()
     {
         Button btn = GetComponent<Button>();
         btn.onClick.AddListener(LoadStage);
 
-        TextMeshProUGUI stageText = stageNumberText.GetComponent<TextMeshProUGUI>();
-        stageText.text = stageNumber.ToString();
-
-        UpdateBackgroundSprite();
-
-        // Set Star Sprites to Filled for each star
-        for (int starIndex = 0; starIndex < stars; starIndex++)
-        {
-            starGameObjects[starIndex].GetComponent<Image>().sprite = filledInStarSprite;
-        }
+        UpdatePanel();
     }
 
     public void LoadStage()
     {
-        SceneManager.LoadScene(stageNumber);
+        if (!stageData.isLocked)
+        {
+            ES3.Save("currentStage", stageData.stageNumber);
+            SceneManager.LoadScene(stageData.stageNumber);
+        }
     }
 
     public void SetDefault()
     {
-        isLocked = false;
-        UpdateBackgroundSprite();
+        stageData.isLocked = false;
+        UpdatePanel();
     }
 
-    private void UpdateBackgroundSprite()
+    public void UpdatePanel()
     {
+        // Update the stage number
+        TextMeshProUGUI stageText = stageNumberText.GetComponent<TextMeshProUGUI>();
+        stageText.text = stageData.stageNumber.ToString();
+
+        // Set Star Sprites to Filled for each star
+        for (int starIndex = 0; starIndex < stageData.stars; starIndex++)
+        {
+            starGameObjects[starIndex].GetComponent<Image>().sprite = filledInStarSprite;
+        }
+
         // Set Background Sprite
-        if (isLocked)
+        if (stageData.isLocked)
         {
             gameObject.GetComponent<Image>().sprite = stageLockBackgroundSprite;
             stageLock.SetActive(true);
@@ -69,7 +63,7 @@ public class Stage : MonoBehaviour
                 starGameObject.SetActive(false);
             }
         }
-        else if (!hasAttempted)
+        else if (stageData.hasAttempted)
         {
             gameObject.GetComponent<Image>().sprite = stageAttemptedBackgroundSprite; ;
             stageLock.SetActive(false);
@@ -91,5 +85,5 @@ public class Stage : MonoBehaviour
                 starGameObject.SetActive(true);
             }
         }
-    }
+     }
 }
